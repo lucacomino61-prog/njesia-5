@@ -18,6 +18,10 @@ npm run dev                 # http://127.0.0.1:3750
 `.dev.vars` holds `BETTER_AUTH_SECRET` and `DEV_SEED_PASSWORD` (sign in as `banor1@shembull.test` …
 `banor60@shembull.test`, or `ekipi1@shembull.test` for the team panel, with that password).
 Accounts: sign-up (name, surname, phone, street, email) → 6-digit email code → team approval → can write.
+The owner's account: sign up at `/regjistrohu` with your own email and password, then
+`node tools/make-super.mjs you@example.com` makes it the superadmin (add `--remote` for production).
+Superadmins promote other team members in the team panel. Reseeding keeps real accounts; it only
+replaces the `@shembull.test` sample accounts.
 Emails go to the local `dev_outbox` table in development and the code page shows the code.
 
 ## Checks
@@ -51,4 +55,5 @@ buttons, a map for proposals (location text only).
 `wrangler d1 create njesia5` and `wrangler kv namespace create MEDIA` / `SESSION` (put the ids in
 wrangler.jsonc), set `SITE_URL` and `ENVIRONMENT=production`, `wrangler secret put BETTER_AUTH_SECRET`
 (+ Resend, required for email codes; Google optional), `wrangler d1 migrations apply njesia5 --remote`, decide on the
-sample seed, then `npm run build && wrangler deploy`.
+sample seed, then `npm run build && wrangler deploy`. Sign up on the live site and run
+`node tools/make-super.mjs you@example.com --remote` to become its superadmin.

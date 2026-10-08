@@ -3,7 +3,7 @@
 // businesses are placeholders, and no municipal decision is claimed. Numbers agree everywhere
 // because every count on the site is computed from these rows.
 //
-// Run: node tools/seed.mjs            (local D1: wipes the forum tables, keeps nothing)
+// Run: node tools/seed.mjs            (local D1: wipes the forum tables and the @shembull.test accounts)
 // Sign-in for sample accounts: any seeded email + DEV_SEED_PASSWORD from .dev.vars
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -57,9 +57,13 @@ const iso = (t) => new Date(t).toISOString();
 for (const t of [
   'dev_outbox', 'setting', 'media', 'sponsor_stat', 'sponsor', 'user_pref', 'notification', 'suspension', 'audit_log', 'report',
   'reminder', 'question_vote', 'question', 'town_hall', 'rsvp', 'event', 'poll_vote', 'poll_option', 'poll', 'comment', 'upvote',
-  'support', 'proposal_update', 'post', 'place', 'rateLimit', 'verification', 'session', 'account', '"user"',
+  'support', 'proposal_update', 'post', 'place', 'rateLimit', 'verification',
 ])
   sql.push(`DELETE FROM ${t};`);
+// only sample and test accounts (all @shembull.test) go; real accounts, such as the owner's
+// superadmin made with tools/make-super.mjs, survive a reseed
+const SAMPLE = `SELECT id FROM "user" WHERE email LIKE '%@shembull.test'`;
+sql.push(`DELETE FROM session WHERE userId IN (${SAMPLE});`, `DELETE FROM account WHERE userId IN (${SAMPLE});`, `DELETE FROM "user" WHERE email LIKE '%@shembull.test';`);
 
 /* ---------- places (real neighbourhoods of Njësia 5; landmarks from public sources) ---------- */
 const places = [
