@@ -1,0 +1,43 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { href } from '../i18n';
+import { isSuper } from '../lib/auth';
+interface Props {
+  title: string;
+  tab: 'overview' | 'publish' | 'people' | 'settings';
+}
+const { title, tab } = Astro.props;
+const { lang, user } = Astro.locals;
+const sq = lang === 'sq';
+const tabs = [
+  { k: 'overview', path: '/ekipi', label: sq ? 'Pasqyra' : 'Overview' },
+  { k: 'publish', path: '/ekipi/publiko', label: sq ? 'Publiko' : 'Publish' },
+  { k: 'people', path: '/ekipi/njerez', label: sq ? 'Njerëzit' : 'People' },
+  ...(isSuper(user) ? [{ k: 'settings', path: '/ekipi/cilesimet', label: sq ? 'Cilësimet' : 'Settings' }] : []),
+];
+---
+<Layout title={title} index={false}>
+  <section class="wrap tm">
+    <h1 class="poster tm__title">{sq ? 'Paneli i ekipit' : 'Team panel'}</h1>
+    <nav class="chips" aria-label={sq ? 'Paneli i ekipit' : 'Team panel'}>
+      {tabs.map((x) => <a class="chip" href={href(lang, x.path)} aria-current={tab === x.k ? 'page' : undefined}>{x.label}</a>)}
+    </nav>
+    <slot />
+  </section>
+</Layout>
+<style>
+  .tm { display: grid; gap: var(--space-6); padding-top: var(--space-7); }
+  .tm__title { font-size: clamp(3rem, 1rem + 7vw, 8rem); }
+  .tm :global(.panel) { display: grid; gap: var(--space-4); padding: var(--space-5); border: 2.5px solid var(--ink); }
+  .tm :global(.panel form) { display: grid; gap: var(--space-3); }
+  .tm :global(.panel .btn) { justify-self: start; }
+  .tm :global(.grid2) { display: grid; gap: var(--space-5); grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); align-items: start; }
+  .tm :global(.stats) { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+  .tm :global(.stat) { padding: var(--space-4); background: var(--ground-2); display: grid; gap: var(--space-1); }
+  .tm :global(.stat strong) { font-family: var(--font-display); font-weight: 900; font-size: var(--step-3); line-height: 1; }
+  .tm :global(.tbl) { width: 100%; border-collapse: collapse; }
+  .tm :global(.tbl th), .tm :global(.tbl td) { text-align: left; padding: var(--space-3) var(--space-2); border-bottom: 2px solid var(--line-soft); vertical-align: top; }
+  .tm :global(.tbl th) { font-size: var(--step--1); color: var(--ink-2); }
+  .tm :global(.row-acts) { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .tm :global(.over) { color: var(--danger); font-weight: 700; }
+</style>

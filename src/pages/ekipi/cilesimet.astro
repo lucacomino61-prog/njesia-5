@@ -1,0 +1,66 @@
+---
+import TeamShell from '../../components/TeamShell.astro';
+import { href } from '../../i18n';
+import { isSuper } from '../../lib/auth';
+import { all } from '../../lib/db';
+import { proposalGoal } from '../../lib/queries';
+
+const { lang, user, path } = Astro.locals;
+const sq = lang === 'sq';
+if (!user) return Astro.redirect(href(lang, '/hyr') + `?pas=${encodeURIComponent(href(lang, path))}`, 303);
+if (!isSuper(user)) return Astro.redirect(href(lang, '/ekipi'), 303);
+const [goal, sponsors] = await Promise.all([
+  proposalGoal(),
+  all<{ id: string; name: string; paused: number; url: string | null; views: number; clicks: number }>(
+    `SELECT s.id, s.name, s.paused, s.url, COALESCE(SUM(st.views), 0) AS views, COALESCE(SUM(st.clicks), 0) AS clicks
+     FROM sponsor s LEFT JOIN sponsor_stat st ON st.sponsor_id = s.id GROUP BY s.id ORDER BY s.created_at`,
+  ),
+]);
+const back = href(lang, '/ekipi/cilesimet');
+---
+<TeamShell title={sq ? 'Cilësimet' : 'Settings'} tab="settings">
+  <div class="grid2">
+    <section class="panel">
+      <h2 class="h3">{sq ? 'Mbështetja që i duhet një propozimi' : 'Support a proposal needs'}</h2>
+      <form method="post" action="/do/settings" data-enhance>
+        <input type="hidden" name="back" value={back} /><input type="hidden" name="lang" value={lang} />
+        <div class="field"><label for="goal">{sq ? 'Një numër për gjithë njësinë' : 'One number for the whole unit'}</label><input class="input" id="goal" name="goal" type="number" min="5" max="5000" value={goal} required /></div>
+        <p class="form-error" role="alert"></p>
+        <button class="btn" type="submit">{sq ? 'Ruaj' : 'Save'}</button>
+      </form>
+    </section>
+
+    <section class="panel" data-region="sponsors">
+      <h2 class="h3">{sq ? 'Bizneset mbështetëse' : 'Supporting businesses'}</h2>
+      <p class="meta">{sq ? 'Një shikim numërohet vetëm kur karta del në ekran, një herë në ditë për shfletues. Pagesa bëhet jashtë platformës.' : 'A view counts only once the card is on screen, once a day per browser. Payment happens outside the platform.'}</p>
+      <table class="tbl">
+        <thead><tr><th>{sq ? 'Biznesi' : 'Business'}</th><th>{sq ? 'Shikime' : 'Views'}</th><th>{sq ? 'Klikime' : 'Clicks'}</th><th></th></tr></thead>
+        <tbody>
+          {sponsors.map((s) => (
+            <tr>
+              <td>{s.name}{s.paused ? <span class="tag">{sq ? 'Pezulluar' : 'Paused'}</span> : null}</td>
+              <td class="num">{s.views}</td>
+              <td class="num">{s.clicks}</td>
+              <td>
+                <form method="post" action="/do/sponsor" data-enhance>
+                  <input type="hidden" name="sponsor" value={s.id} /><input type="hidden" name="op" value={s.paused ? 'resume' : 'pause'} /><input type="hidden" name="back" value={back} />
+                  <button class="btn btn--sm btn--line" type="submit">{s.paused ? (sq ? 'Rifillo' : 'Resume') : (sq ? 'Pezullo' : 'Pause')}</button>
+                </form>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <form method="post" action="/do/sponsor" data-enhance data-reset>
+        <input type="hidden" name="back" value={back} /><input type="hidden" name="lang" value={lang} />
+        <div class="field"><label for="s-name">{sq ? 'Emri i biznesit' : 'Business name'}</label><input class="input" id="s-name" name="name" required minlength="2" maxlength="80" /></div>
+        <div class="field"><label for="s-desc">{sq ? 'Çfarë ofron (një ose dy rreshta)' : 'What it offers (a line or two)'}</label><input class="input" id="s-desc" name="description" required minlength="5" maxlength="240" /></div>
+        <div class="field"><label for="s-url">{sq ? 'Faqja e biznesit (https)' : 'The business page (https)'}</label><input class="input" id="s-url" name="url" type="url" placeholder="https://" /></div>
+        <div class="field"><label for="s-phone">{sq ? 'Telefoni (opsional)' : 'Phone (optional)'}</label><input class="input" id="s-phone" name="phone" type="tel" /></div>
+        <div class="field"><label for="s-addr">{sq ? 'Adresa (opsionale)' : 'Address (optional)'}</label><input class="input" id="s-addr" name="address" maxlength="140" /></div>
+        <p class="form-error" role="alert"></p>
+        <button class="btn" type="submit">{sq ? 'Shto biznesin' : 'Add business'}</button>
+      </form>
+    </section>
+  </div>
+</TeamShell>

@@ -1,0 +1,123 @@
+---
+// One topic or proposal in a list: title as a sign, the real counts, and the team's reply clock.
+import Icon from './Icon.astro';
+import SupportLane from './SupportLane.astro';
+import { t as tr, href } from '../i18n';
+import { relative, hoursBetween } from '../lib/time';
+import { placePhrase, type FeedPost } from '../lib/queries';
+import { postPath } from '../lib/paths';
+
+interface Props {
+  post: FeedPost;
+  goal: number;
+  size?: 'md' | 'lg';
+}
+const { post: p, goal, size = 'md' } = Astro.props;
+const { lang } = Astro.locals;
+const t = tr(lang);
+const url = href(lang, postPath(p));
+const isProposal = p.kind === 'proposal';
+const g = p.goal ?? goal;
+const replied = p.team_reply_at ? hoursBetween(p.created_at, p.team_reply_at) : null;
+const isTeamAuthor = p.author_role === 'admin' || p.author_role === 'superadmin';
+---
+<article class:list={['row', `row--${size}`, { 'row--done': p.status === 'completed' }]}>
+  <div class="row__meta meta">
+    {isProposal && p.status && <span class:list={['tag', { 'tag--paint': p.status === 'completed', 'tag--ink': p.status === 'planned' || p.status === 'under_review' }]}>{t.proposal.status[p.status]}</span>}
+    {!isProposal && <span class="tag">{t.post.kindTopic}</span>}
+    {p.place_slug && (
+      <a class="row__place" href={href(lang, `/forumi?vendi=${p.place_slug}`)}><Icon name="mapPin" />{p.place_name}</a>
+    )}
+    <span>{p.author_name}{isTeamAuthor && ` · ${t.post.team}`}</span>
+    <time datetime={new Date(p.created_at).toISOString()}>{relative(p.created_at, lang)}</time>
+  </div>
+  <h3 class="row__title"><a href={url}>{p.title}</a></h3>
+  {p.body && <p class="row__body">{p.body.length > 220 ? p.body.slice(0, 217).trimEnd() + '…' : p.body}</p>}
+  {isProposal && p.status !== 'rejected' && <div class="row__lane"><SupportLane supports={p.supports} goal={g} /></div>}
+  <div class="row__foot meta">
+    <a href={url + '#komente'} class="row__stat"><Icon name="chat" />{t.comments.title(p.comments)}</a>
+    {!isProposal && <span class="row__stat"><Icon name="arrowUp" />{t.post.upvotes(p.upvotes)}</span>}
+    {replied !== null ? (
+      <span class="row__stat row__stat--ok"><Icon name="check" />{t.post.teamReplied(replied)}</span>
+    ) : (
+      !isTeamAuthor && <span class="row__stat"><Icon name="clock" />{t.post.awaiting}</span>
+    )}
+  </div>
+</article>
+
+<style>
+  .row {
+    padding-block: var(--space-6);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+  }
+  .row__place {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+    font-weight: 700;
+    color: var(--ink-2);
+    text-decoration: none;
+    min-height: 32px;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .row__place:hover {
+      color: var(--ink);
+      text-decoration: underline;
+      text-decoration-color: var(--paint);
+    }
+  }
+  .row__title {
+    font-size: var(--step-3);
+    line-height: 0.95;
+    font-weight: 800;
+    max-width: 24ch;
+  }
+  .row--lg .row__title {
+    font-size: var(--step-4);
+    max-width: 18ch;
+  }
+  .row__title a {
+    text-decoration: none;
+    background: linear-gradient(var(--paint), var(--paint)) 0 88% / 0% 0.28em no-repeat;
+    transition: background-size 280ms var(--ease-paint);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .row__title a:hover {
+      background-size: 100% 0.28em;
+    }
+  }
+  .row__body {
+    color: var(--ink-2);
+    max-width: var(--measure);
+  }
+  .row__lane {
+    max-width: 40rem;
+  }
+  .row__foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+  }
+  .row__stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    color: var(--ink-2);
+    text-decoration: none;
+    min-height: 32px;
+  }
+  .row__stat--ok {
+    color: var(--ink);
+    font-weight: 700;
+  }
+  a.row__stat {
+    font-weight: 700;
+  }
+</style>

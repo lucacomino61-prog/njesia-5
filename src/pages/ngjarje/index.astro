@@ -1,0 +1,61 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import EventRow from '../../components/EventRow.astro';
+import Icon from '../../components/Icon.astro';
+import { t as tr, href } from '../../i18n';
+import { listEvents, listPlaces } from '../../lib/queries';
+import { isTeam } from '../../lib/auth';
+
+const { lang, user } = Astro.locals;
+const t = tr(lang);
+const places = await listPlaces();
+const place = places.find((p) => p.slug === Astro.url.searchParams.get('vendi')) ?? null;
+const [upcoming, past] = await Promise.all([
+  listEvents({ viewer: user?.id, when: 'upcoming', place: place?.slug }),
+  listEvents({ viewer: user?.id, when: 'past', place: place?.slug, limit: 12 }),
+]);
+const qs = (slug?: string) => '/ngjarje' + (slug ? `?vendi=${slug}` : '');
+---
+<Layout title={place ? `${t.events.title}: ${place.name}` : t.events.title} description={t.events.lead}>
+  <div class="wrap page">
+    <header class="page__head">
+      <h1 class="poster">{t.events.title}</h1>
+      <p class="lead">{t.events.lead}</p>
+    </header>
+    <nav class="chips places" aria-label={t.forum.placeLabel}>
+      <a class="chip" href={href(lang, qs())} aria-current={!place ? 'page' : undefined}>{t.forum.wholeUnit}</a>
+      {places.map((p) => <a class="chip" href={href(lang, qs(p.slug))} aria-current={place?.slug === p.slug ? 'page' : undefined}><Icon name="mapPin" />{p.name}</a>)}
+    </nav>
+    {isTeam(user) && <a class="btn btn--line btn--sm teamnew" href={href(lang, '/ekipi/publiko#ngjarje')}><Icon name="calendarPlus" />{lang === 'sq' ? 'Shto ngjarje' : 'Add event'}</a>}
+
+    <section aria-labelledby="h-up">
+      <h2 class="h2" id="h-up">{t.events.upcoming}</h2>
+      {upcoming.length === 0 ? (
+        <div class="empty">
+          <p class="h3">{t.events.empty}</p>
+          <p class="meta">{t.events.emptyBody}</p>
+        </div>
+      ) : (
+        <div class="rows list">{upcoming.map((e, i) => <EventRow event={e} size={i === 0 ? 'lg' : 'md'} />)}</div>
+      )}
+    </section>
+
+    {past.length > 0 && (
+      <section class="past" aria-labelledby="h-past">
+        <h2 class="h2" id="h-past">{t.events.past}</h2>
+        <div class="rows list" data-reveal>{past.map((e) => <EventRow event={e} />)}</div>
+      </section>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .page { padding-top: var(--space-7); }
+  .page__head { display: grid; gap: var(--space-4); margin-bottom: var(--space-6); }
+  .places { margin-bottom: var(--space-6); }
+  .teamnew { margin-bottom: var(--space-6); }
+  .h2 { margin-bottom: var(--space-4); }
+  .list { max-width: 62rem; }
+  .empty { display: grid; gap: var(--space-2); padding-block: var(--space-6); }
+  .past { margin-top: var(--space-9); }
+</style>

@@ -1,0 +1,46 @@
+---
+import AuthShell from '../components/AuthShell.astro';
+import Icon from '../components/Icon.astro';
+import { t as tr, href } from '../i18n';
+import { callAuth, errorText, readForm, redirectWith } from '../lib/authflow';
+
+const { lang } = Astro.locals;
+const t = tr(lang);
+const token = Astro.url.searchParams.get('token') ?? '';
+const linkError = Astro.url.searchParams.get('error');
+let error = '';
+if (Astro.request.method === 'POST') {
+  const f = await readForm(Astro);
+  const newPassword = String(f.get('password') ?? '');
+  const tk = String(f.get('token') ?? '');
+  if (newPassword.length < 8) error = t.errors.PASSWORD_TOO_SHORT;
+  else {
+    const r = await callAuth((a) => a.api.resetPassword({ body: { newPassword, token: tk }, headers: Astro.request.headers, asResponse: true }));
+    if (r.ok) return redirectWith(href(lang, '/hyr'), [], { kind: 'ok', text: t.auth.resetDone });
+    error = errorText(lang, r.code);
+  }
+}
+const invalid = !token || Boolean(linkError);
+---
+<AuthShell title={t.auth.resetTitle} lead={invalid ? undefined : t.auth.resetLead}>
+  {invalid ? (
+    <>
+      <p class="notice" role="alert">{t.auth.resetInvalid}</p>
+      <a class="btn" href={href(lang, '/harrova')}>{t.auth.forgotSend}</a>
+    </>
+  ) : (
+    <form method="post" action={href(lang, '/fjalekalim-i-ri') + `?token=${encodeURIComponent(token)}`}>
+      <input type="hidden" name="token" value={token} />
+      <div class="field">
+        <label for="password">{t.auth.password}</label>
+        <div class="pw">
+          <input class="input" id="password" name="password" type="password" autocomplete="new-password" required minlength="8" aria-describedby="pw-hint" />
+          <button type="button" data-reveal="password" aria-pressed="false" aria-label={t.auth.showPassword}><Icon name="eye" /></button>
+        </div>
+        <p class="hint" id="pw-hint">{t.auth.passwordHint}</p>
+      </div>
+      {error && <p class="form-error" role="alert">{error}</p>}
+      <button class="btn" type="submit">{t.auth.resetSave}</button>
+    </form>
+  )}
+</AuthShell>

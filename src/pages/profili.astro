@@ -1,0 +1,152 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Icon from '../components/Icon.astro';
+import { t as tr, href } from '../i18n';
+import { listPlaces } from '../lib/queries';
+import { all, one } from '../lib/db';
+import { formatPhone, isPhoneEmail } from '../lib/phone';
+import { callAuth, errorText, readForm, redirectWith } from '../lib/authflow';
+import { relative } from '../lib/time';
+import { postPath } from '../lib/paths';
+import { isTeam, isApproved } from '../lib/auth';
+
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+if (!user) return Astro.redirect(href(lang, '/hyr') + `?pas=${encodeURIComponent(href(lang, path))}`, 303);
+const [hoods, pref, mine] = await Promise.all([
+  listPlaces().then((p) => p.filter((x) => x.kind === 'lagje')),
+  one<{ email_decisions: number; email_live: number }>('SELECT email_decisions, email_live FROM user_pref WHERE user_id = ?', user.id),
+  all<{ id: string; kind: string; title: string; created_at: number; state: string }>(
+    "SELECT id, kind, title, created_at, state FROM post WHERE author_id = ? AND state != 'deleted' ORDER BY created_at DESC LIMIT 20",
+    user.id,
+  ),
+]);
+const back = href(lang, '/profili');
+// change password (a real POST to this page, like the sign-in forms)
+let pwError = '';
+if (Astro.request.method === 'POST') {
+  const f = await readForm(Astro);
+  const currentPassword = String(f.get('current') ?? '');
+  const newPassword = String(f.get('next') ?? '');
+  if (newPassword.length < 8) pwError = t.errors.PASSWORD_TOO_SHORT;
+  else {
+    const r = await callAuth((a) =>
+      a.api.changePassword({ body: { currentPassword, newPassword, revokeOtherSessions: true }, headers: Astro.request.headers, asResponse: true }),
+    );
+    if (r.ok) return redirectWith(back, r.cookies, { kind: 'ok', text: t.auth.resetDone.split('.')[0] + '.' });
+    pwError = r.code === 'INVALID_PASSWORD' ? (lang === 'sq' ? 'Fjalëkalimi aktual nuk është i saktë.' : 'The current password is not right.') : errorText(lang, r.code);
+  }
+}
+const contact = isPhoneEmail(user.email) ? (user.phoneNumber ? formatPhone(user.phoneNumber) : '') : user.email;
+const approved = isApproved(user);
+---
+<Layout title={t.profile.title} index={false}>
+  <section class="wrap pf">
+    <header class="pf__head">
+      <span class="plate plate--ink pf__plate" aria-hidden="true">{user.name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</span>
+      <div>
+        <h1 class="pf__name">{user.name}</h1>
+        <p class="meta">{contact} · {t.profile.role[user.role]}</p>
+      </div>
+    </header>
+
+    {user.closedAt && <p class="notice">{t.profile.closedBanner}</p>}
+    {user.suspendedAt && <p class="notice">{t.errors.suspended}</p>}
+
+    <div class="pf__phone">
+      {approved ? (
+        <p><Icon name="shield" /> <strong>{t.profile.approved}</strong></p>
+      ) : (
+        <>
+          <p><Icon name="warning" /> <strong>{user.declinedAt ? t.profile.declined : t.profile.pending}</strong>. {t.auth.readOnly}</p>
+          <a class="btn btn--sm" href={href(lang, '/ne-pritje') + '?pas=' + encodeURIComponent(back)}>{t.profile.seeStatus}</a>
+        </>
+      )}
+      {user.phoneNumber && !isPhoneEmail(user.email) && <p class="meta">{t.auth.phone}: {formatPhone(user.phoneNumber)}</p>}
+    </div>
+
+    <form class="pf__form" method="post" action="/do/profile" data-enhance>
+      <input type="hidden" name="back" value={back} />
+      <input type="hidden" name="lang" value={lang} />
+      <div class="field">
+        <label for="name">{t.auth.name}</label>
+        <input class="input" id="name" name="name" required minlength="2" maxlength="80" value={user.name} autocomplete="name" />
+      </div>
+      <div class="field">
+        <label for="hood">{t.auth.neighbourhood}</label>
+        <select class="select" id="hood" name="neighbourhood">
+          <option value="">{t.auth.neighbourhoodNone}</option>
+          {hoods.map((h) => <option value={h.slug} selected={user.neighbourhood === h.slug}>{h.name}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label for="pf-phone">{t.auth.phone}</label>
+        <input class="input" id="pf-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel-national" value={user.phoneNumber ? formatPhone(user.phoneNumber) : ''} aria-describedby="pf-ph-hint" />
+        <p class="hint" id="pf-ph-hint">{t.auth.phoneHint}</p>
+      </div>
+      <div class="field">
+        <label for="pf-street">{t.auth.street}</label>
+        <input class="input" id="pf-street" name="street" autocomplete="street-address" maxlength="120" value={user.street ?? ''} aria-describedby="pf-st-hint" />
+        <p class="hint" id="pf-st-hint">{t.auth.streetHint}</p>
+      </div>
+      <fieldset class="field">
+        <legend>{t.profile.notify}</legend>
+        <label class="check"><input type="checkbox" name="email_decisions" value="1" checked={Boolean(pref?.email_decisions)} />{t.profile.notifyDecisions}</label>
+        <label class="check"><input type="checkbox" name="email_live" value="1" checked={Boolean(pref?.email_live)} />{t.profile.notifyLive}</label>
+      </fieldset>
+      <p class="form-error" role="alert"></p>
+      <button class="btn" type="submit">{t.profile.save}</button>
+    </form>
+
+    {mine.length > 0 && (
+      <section class="pf__mine">
+        <h2 class="h3">{lang === 'sq' ? 'Çfarë ke shkruar' : 'What you wrote'}</h2>
+        <ul role="list">
+          {mine.map((p) => <li><a href={href(lang, postPath(p))}>{p.title}</a> <span class="meta">{relative(p.created_at, lang)}</span></li>)}
+        </ul>
+      </section>
+    )}
+
+    <form class="pf__form" method="post" action={back}>
+      <h2 class="h3">{lang === 'sq' ? 'Ndrysho fjalëkalimin' : 'Change password'}</h2>
+      <div class="field"><label for="pw-cur">{lang === 'sq' ? 'Fjalëkalimi aktual' : 'Current password'}</label><input class="input" id="pw-cur" name="current" type="password" autocomplete="current-password" required /></div>
+      <div class="field"><label for="pw-new">{t.auth.resetTitle}</label><input class="input" id="pw-new" name="next" type="password" autocomplete="new-password" required minlength="8" aria-describedby="pw-new-hint" /><p class="hint" id="pw-new-hint">{t.auth.passwordHint}</p></div>
+      {pwError && <p class="form-error" role="alert">{pwError}</p>}
+      <button class="btn btn--line" type="submit">{t.auth.resetSave}</button>
+    </form>
+
+    <div class="pf__row">
+      {isTeam(user) && <a class="btn btn--ink" href={href(lang, '/ekipi')}><Icon name="shield" />{t.nav.team}</a>}
+      <form method="post" action={href(lang, '/dil')}>
+        <button class="btn btn--line" type="submit"><Icon name="signOut" />{t.auth.signOut}</button>
+      </form>
+    </div>
+
+    <section class="pf__close">
+      <h2 class="h3">{t.profile.closeTitle}</h2>
+      <p class="meta">{t.profile.closeLead}</p>
+      <form method="post" action={user.closedAt ? '/do/account-reopen' : '/do/account-close'}>
+        <input type="hidden" name="back" value={back} />
+        <input type="hidden" name="lang" value={lang} />
+        <button class="btn btn--line btn--sm" type="submit">{user.closedAt ? t.profile.reopen : t.profile.close}</button>
+      </form>
+    </section>
+  </section>
+</Layout>
+
+<style>
+  .pf { display: grid; gap: var(--space-6); padding-top: var(--space-7); max-width: 46rem; }
+  .pf__head { display: flex; align-items: center; gap: var(--space-4); }
+  .pf__plate { width: 4.5rem; height: 4.5rem; font-size: 1.8rem; }
+  .pf__name { font-size: var(--step-4); text-transform: uppercase; }
+  .pf__phone { display: grid; gap: var(--space-3); justify-items: start; padding: var(--space-4); border: 2.5px solid var(--ink); }
+  .pf__form { display: grid; gap: var(--space-4); }
+  .pf__form .btn { justify-self: start; }
+  .check { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; font-weight: 600; }
+  .check input { width: 1.25rem; height: 1.25rem; accent-color: var(--ink); }
+  .pf__mine ul { list-style: none; padding: 0; display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+  .pf__mine a { font-weight: 700; }
+  .pf__row { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+  .pf__close { display: grid; gap: var(--space-3); justify-items: start; padding-top: var(--space-5); border-top: 2px solid var(--line-soft); }
+  .notice { padding: var(--space-4); border: 2.5px solid var(--ink); font-weight: 700; }
+</style>

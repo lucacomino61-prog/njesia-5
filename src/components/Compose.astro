@@ -1,0 +1,81 @@
+---
+// New topic or proposal. Readers who cannot write yet are sent to sign in or verify first,
+// and come back here afterwards.
+import Layout from '../layouts/Layout.astro';
+import Icon from './Icon.astro';
+import { t as tr, href } from '../i18n';
+import { listPlaces } from '../lib/queries';
+import { canWrite } from '../lib/auth';
+
+interface Props {
+  kind: 'topic' | 'proposal';
+}
+const { kind } = Astro.props;
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+const places = await listPlaces();
+const preset = Astro.url.searchParams.get('vendi') ?? user?.neighbourhood ?? '';
+const proposal = kind === 'proposal';
+const here = href(lang, path);
+---
+<Layout title={proposal ? t.compose.proposalTitle : t.compose.topicTitle} index={false}>
+  <section class="wrap cp">
+    <a class="signlink" href={href(lang, '/forumi')}><Icon name="arrowLeft" />{t.post.back}</a>
+    <h1 class="cp__title">{proposal ? t.compose.proposalTitle : t.compose.topicTitle}</h1>
+    <p class="lead">{proposal ? t.compose.proposalLead : t.compose.topicLead}</p>
+    {!user ? (
+      <a class="btn" href={href(lang, '/hyr') + `?pas=${encodeURIComponent(here)}`}>{t.auth.needSignIn}</a>
+    ) : !canWrite(user) ? (
+      <div class="cp__gate">
+        <p>{user.suspendedAt ? t.errors.suspended : user.closedAt ? t.errors.closed : t.auth.readOnly}</p>
+        {!user.suspendedAt && !user.closedAt && <a class="btn" href={href(lang, '/ne-pritje') + `?pas=${encodeURIComponent(here)}`}>{t.profile.seeStatus}</a>}
+      </div>
+    ) : (
+      <form class="cp__form" method="post" action={`/do/${kind}`} data-enhance>
+        <input type="hidden" name="back" value={here} />
+        <input type="hidden" name="lang" value={lang} />
+        <div class="field">
+          <label for="title">{t.compose.title}</label>
+          <input class="input" id="title" name="title" required minlength="5" maxlength="140" placeholder={proposal ? t.compose.titlePlaceholderProposal : t.compose.titlePlaceholderTopic} />
+        </div>
+        <div class="field">
+          <label for="body">{proposal ? t.compose.bodyProposal : t.compose.body}</label>
+          <textarea class="textarea" id="body" name="body" required minlength="10" maxlength="6000" rows="7"></textarea>
+        </div>
+        <fieldset class="field">
+          <legend>{t.compose.place}</legend>
+          <p class="hint">{t.compose.placeHint}</p>
+          <div class="cp__places">
+            <label class="chip"><input type="radio" name="place" value="" checked={!preset} />{t.forum.wholeUnit}</label>
+            {places.map((p) => <label class="chip"><input type="radio" name="place" value={p.slug} checked={preset === p.slug} />{p.name}</label>)}
+          </div>
+        </fieldset>
+        {proposal && (
+          <div class="field">
+            <label for="location">{t.compose.location}</label>
+            <input class="input" id="location" name="location" maxlength="140" placeholder={t.compose.locationPlaceholder} />
+          </div>
+        )}
+        <p class="form-error" role="alert"></p>
+        <div class="cp__bar">
+          <button class="btn" type="submit">{proposal ? t.compose.publishProposal : t.compose.publish}<Icon name="arrowRight" /></button>
+          <a class="btn btn--quiet" href={href(lang, '/forumi')}>{t.compose.cancel}</a>
+        </div>
+      </form>
+    )}
+  </section>
+</Layout>
+
+<style>
+  .cp { display: grid; gap: var(--space-5); padding-top: var(--space-6); max-width: 46rem; }
+  .cp > .signlink { justify-self: start; }
+  .cp__title { font-size: clamp(3rem, 1.5rem + 6vw, 6.5rem); text-transform: uppercase; font-weight: 900; line-height: 0.88; }
+  .cp__form { display: grid; gap: var(--space-5); }
+  .cp__places { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .cp__places .chip { cursor: pointer; }
+  .cp__places input { position: absolute; opacity: 0; pointer-events: none; }
+  .cp__places .chip:has(input:checked) { background: var(--paint); color: var(--paint-ink); border-color: var(--paint); }
+  .cp__places .chip:has(input:focus-visible) { outline: 3px solid var(--paint); outline-offset: 2px; box-shadow: 0 0 0 5px var(--ink); }
+  .cp__bar { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+  .cp__gate { display: grid; gap: var(--space-4); justify-items: start; padding: var(--space-5); border: 2.5px solid var(--ink); }
+</style>

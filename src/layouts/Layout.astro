@@ -1,0 +1,422 @@
+---
+import '../styles/global.css';
+import Icon from '../components/Icon.astro';
+import { t as tr, href } from '../i18n';
+import { isTeam } from '../lib/auth';
+import { unreadCount } from '../lib/queries';
+import { env } from 'cloudflare:workers';
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** false = keep out of search engines (forms, profile, notifications) */
+  index?: boolean;
+  ogType?: 'website' | 'article';
+  jsonld?: Record<string, unknown> | Record<string, unknown>[];
+  /** "home" adds the intro + sentence motion */
+  page?: string;
+}
+
+const { title, description, index = true, ogType = 'website', jsonld, page = '' } = Astro.props;
+const { lang, path, user, flash } = Astro.locals;
+const t = tr(lang);
+const site = env.SITE_URL.replace(/\/$/, '');
+const fullTitle = title ? `${title} · ${t.site.name}` : `${t.site.name} · ${t.site.tagline}`;
+const desc = description ?? t.site.description;
+// carry only known, safe parameters to the other language and the canonical/alternate links
+const search = (() => {
+  const keep = new URLSearchParams();
+  for (const [k, v] of Astro.url.searchParams) {
+    if (['lloji', 'vendi', 'kategoria', 'para', 'k', 'filtri', 'token'].includes(k)) keep.append(k, v.slice(0, 200));
+    else if (k === 'pas' && v.startsWith('/') && !v.startsWith('//') && !v.includes('\\')) keep.append(k, v.slice(0, 500));
+  }
+  const s = keep.toString();
+  return s ? '?' + s : '';
+})();
+const canonical = site + href(lang, path) + (search && /[?&](lloji|vendi|kategoria)=/.test(search) ? search : '');
+const altSq = site + href('sq', path) + search;
+const altEn = site + href('en', path) + search;
+const otherLang = lang === 'sq' ? 'en' : 'sq';
+
+const nav = [
+  { path: '/', label: t.nav.home, icon: 'house' as const },
+  { path: '/forumi', label: t.nav.forum, icon: 'chats' as const },
+  { path: '/vendime', label: t.nav.decisions, icon: 'gavel' as const },
+  { path: '/ngjarje', label: t.nav.events, icon: 'calendar' as const },
+  { path: '/live', label: t.nav.live, icon: 'broadcast' as const },
+];
+const current = (p: string) => (p === '/' ? path === '/' : path === p || path.startsWith(p + '/') || (p === '/forumi' && (path.startsWith('/tema') || path.startsWith('/propozime'))));
+const isProd = env.ENVIRONMENT === 'production';
+const unread = user ? await unreadCount(user.id) : 0;
+---
+<!doctype html>
+<html lang={lang} data-page={page}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={desc} />
+    {index ? <link rel="canonical" href={canonical} /> : <meta name="robots" content="noindex, follow" />}
+    {index && <link rel="alternate" hreflang="sq" href={altSq} />}
+    {index && <link rel="alternate" hreflang="en" href={altEn} />}
+    {index && <link rel="alternate" hreflang="x-default" href={altSq} />}
+    <meta property="og:site_name" content={t.site.name} />
+    <meta property="og:title" content={title ?? t.site.name} />
+    <meta property="og:description" content={desc} />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content={lang === 'sq' ? 'sq_AL' : 'en_GB'} />
+    <meta property="og:image" content={`${site}/og.png`} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#f3f3f0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#17181a" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preload" href="/fonts/big-shoulders.v1.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/atkinson-next.v1.woff2" as="font" type="font/woff2" crossorigin />
+    <style is:inline>@view-transition{navigation:auto}</style>
+    <script is:inline>
+      try {
+        if (localStorage.getItem('n5-motion') === 'off') document.documentElement.dataset.motion = 'off';
+      } catch (e) {}
+    </script>
+    {jsonld && <script type="application/ld+json" set:html={JSON.stringify(jsonld)} />}
+  </head>
+  <body>
+    <a class="skip" href="#main">{t.site.skip}</a>
+    <header class="hdr">
+      <div class="wrap hdr__in">
+        <a class="brand" href={href(lang, '/')} aria-label={`${t.site.name}, ${t.nav.home}`}>
+          <span class="brand__zebra" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="brand__name">{t.site.name}</span>
+        </a>
+        <nav class="hdr__nav" aria-label={t.nav.main}>
+          {nav.map((n) => (
+            <a href={href(lang, n.path)} aria-current={current(n.path) ? 'page' : undefined}>{n.label}</a>
+          ))}
+        </nav>
+        <div class="hdr__tools">
+          <a class="lang" href={href(otherLang, path) + search} hreflang={otherLang} lang={otherLang}>
+            <span class="sr-only">{otherLang === 'en' ? 'English' : 'Shqip'}</span>
+            <span aria-hidden="true">{otherLang.toUpperCase()}</span>
+          </a>
+          {user ? (
+            <>
+              <a class="hdr__icon" href={href(lang, '/njoftime')} aria-label={unread ? `${t.nav.notifications} (${unread})` : t.nav.notifications} data-bell>
+                <Icon name="bell" size="1.4rem" />
+                <span class="hdr__dot" data-unread hidden={!unread}></span>
+              </a>
+              <a class="hdr__me" href={href(lang, '/profili')} aria-label={t.nav.profile}>
+                <span class="plate plate--ink" aria-hidden="true">{user.name.trim().split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase()}</span>
+              </a>
+            </>
+          ) : (
+            <a class="btn btn--sm btn--ink" href={href(lang, '/hyr') + (path !== '/' && !path.startsWith('/hyr') ? `?pas=${encodeURIComponent(path + search)}` : '')}>{t.nav.signIn}</a>
+          )}
+        </div>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+
+    <footer class="ftr">
+      <div class="wrap">
+        <div class="ftr__top">
+          <a class="ftr__brand" href={href(lang, '/')}>
+            <span class="brand__zebra" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            {t.site.name}
+          </a>
+          <p class="ftr__tag">{t.site.tagline}</p>
+        </div>
+        <div class="ftr__cols">
+          <nav aria-label={t.nav.sections}>
+            <ul role="list">
+              {nav.map((n) => <li><a href={href(lang, n.path)}>{n.label}</a></li>)}
+            </ul>
+          </nav>
+          <nav aria-label={t.nav.about}>
+            <ul role="list">
+              <li><a href={href(lang, '/bizneset')}>{t.nav.businesses}</a></li>
+              <li><a href={href(lang, '/kushtet')}>{t.nav.terms}</a></li>
+              <li><a href={href(lang, '/privatesia')}>{t.nav.privacy}</a></li>
+              <li><a href={href(lang, '/kushtet') + '#kontakt'}>{t.nav.support}</a></li>
+              {isTeam(user) && <li><a href={href(lang, '/ekipi')}>{t.nav.team}</a></li>}
+            </ul>
+          </nav>
+          <div class="ftr__tools">
+            <button class="btn btn--sm btn--line" type="button" data-motion-toggle aria-pressed="false">
+              <Icon name="pause" />
+              <span data-on>{t.nav.motionOff}</span>
+              <span data-off hidden>{t.nav.motionOn}</span>
+            </button>
+            <a class="btn btn--sm btn--line" href={href(otherLang, path) + search} hreflang={otherLang} lang={otherLang}>{otherLang === 'en' ? 'English' : 'Shqip'}</a>
+          </div>
+        </div>
+        <div class="ftr__legal">
+          <p><strong>{t.footer.note}</strong></p>
+          <p>{t.footer.office}</p>
+          {!isProd && <p>{t.footer.sample}</p>}
+        </div>
+      </div>
+    </footer>
+
+    <nav class="tabbar" aria-label={t.nav.main}>
+      {nav.map((n) => (
+        <a href={href(lang, n.path)} aria-current={current(n.path) ? 'page' : undefined}>
+          <Icon name={n.icon} size="1.5rem" />
+          <span>{n.label}</span>
+        </a>
+      ))}
+    </nav>
+
+    <div class="toast" role="status" aria-live="polite" data-toast data-kind={flash?.kind ?? 'ok'} hidden={!flash}>
+      <span data-toast-text>{flash?.text}</span>
+    </div>
+
+    <script>
+      import '../scripts/app';
+    </script>
+  </body>
+</html>
+
+<style>
+  .hdr {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--ground);
+    border-bottom: 2.5px solid var(--ink);
+  }
+  .hdr__in {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    height: var(--header-h);
+  }
+  .brand,
+  .ftr__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 44px;
+    text-decoration: none;
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: 1.85rem;
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+  .brand__zebra {
+    display: inline-flex;
+    gap: 3px;
+    height: 1.35rem;
+  }
+  .brand__zebra i {
+    width: 5px;
+    background: var(--paint);
+    outline: 1.5px solid var(--ink);
+    outline-offset: -1.5px;
+  }
+  .hdr__nav {
+    display: none;
+    gap: var(--space-1);
+    margin-inline: auto;
+  }
+  .hdr__nav a {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding-inline: 0.8rem;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.35rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+  }
+  .hdr__nav a::after {
+    content: '';
+    position: absolute;
+    left: 0.8rem;
+    right: 0.8rem;
+    bottom: 4px;
+    height: 5px;
+    background: var(--paint);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 240ms var(--ease-paint);
+  }
+  .hdr__nav a[aria-current='page']::after {
+    transform: scaleX(1);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .hdr__nav a:hover::after {
+      transform: scaleX(1);
+    }
+  }
+  .hdr__tools {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-left: auto;
+  }
+  .hdr__nav + .hdr__tools {
+    margin-left: 0;
+  }
+  .lang {
+    display: inline-grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    font-weight: 800;
+    text-decoration: none;
+    border: 2px solid var(--ink);
+  }
+  .hdr__icon,
+  .hdr__me {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    text-decoration: none;
+  }
+  .hdr__dot {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 10px;
+    height: 10px;
+    border-radius: 99px;
+    background: var(--paint);
+    outline: 2px solid var(--ground);
+  }
+  @media (min-width: 960px) {
+    .hdr__nav {
+      display: flex;
+    }
+  }
+
+  .tabbar {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 45;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--ground);
+    border-top: 2.5px solid var(--ink);
+  }
+  .tabbar a {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 2px;
+    min-height: 60px;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-decoration: none;
+    color: var(--ink-2);
+  }
+  .tabbar a[aria-current='page'] {
+    color: var(--ink);
+  }
+  .tabbar a[aria-current='page']::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 22%;
+    right: 22%;
+    height: 5px;
+    background: var(--paint);
+  }
+  :global(body) {
+    --tabbar-h: calc(62px + env(safe-area-inset-bottom));
+  }
+  @media (min-width: 960px) {
+    .tabbar {
+      display: none;
+    }
+    :global(body) {
+      --tabbar-h: 0px;
+    }
+  }
+
+  .ftr {
+    margin-top: var(--space-9);
+    padding-block: var(--space-8) var(--space-7);
+    border-top: 2.5px solid var(--ink);
+    background:
+      var(--zebra) top left / 100% 1.25rem no-repeat,
+      var(--ground);
+    padding-top: calc(var(--space-8) + 1.25rem);
+  }
+  .ftr__top {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .ftr__brand {
+    font-size: clamp(2.6rem, 1.8rem + 3vw, 4.5rem);
+  }
+  .ftr__brand .brand__zebra {
+    height: 0.8em;
+  }
+  .ftr__brand .brand__zebra i {
+    width: 0.16em;
+  }
+  .ftr__tag {
+    color: var(--ink-2);
+    max-width: 40ch;
+  }
+  .ftr__cols {
+    display: grid;
+    gap: var(--space-6);
+    margin-top: var(--space-7);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  }
+  .ftr ul {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: var(--space-1);
+  }
+  .ftr ul a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .ftr ul a:hover {
+      text-decoration: underline;
+      text-decoration-color: var(--paint);
+      text-decoration-thickness: 0.2em;
+    }
+  }
+  .ftr__tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: start;
+    gap: var(--space-3);
+  }
+  .ftr__legal {
+    margin-top: var(--space-7);
+    padding-top: var(--space-5);
+    border-top: 2px solid var(--line-soft);
+    display: grid;
+    gap: var(--space-2);
+    font-size: var(--step--1);
+    color: var(--ink-2);
+  }
+</style>

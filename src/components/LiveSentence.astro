@@ -1,0 +1,99 @@
+---
+import type { Token } from '../lib/sentence';
+interface Props {
+  tokens: Token[];
+  id?: string;
+}
+const { tokens, id = 'sentence' } = Astro.props;
+// neighbouring words with the same link become one link (one tab stop, read once)
+const runs: { href?: string; words: Token[] }[] = [];
+for (const tk of tokens) {
+  const last = runs[runs.length - 1];
+  if (last && tk.href && last.href === tk.href) last.words.push(tk);
+  else runs.push({ href: tk.href, words: [tk] });
+}
+---
+<p class="sentence" id={id}>
+  {runs.map((run) => {
+    const body = run.words.map((tk, i) => (<Fragment>{
+      tk.strong ? <strong class="w"><i class="w__paint" aria-hidden="true"></i><span>{tk.text}</span></strong> : tk.text
+    }{i < run.words.length - 1 ? ' ' : ''}</Fragment>));
+    return (<Fragment>{run.href ? <a href={run.href}>{body}</a> : body}{' '}</Fragment>);
+  })}
+</p>
+
+<style>
+  .sentence {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(1.75rem, 1.2rem + 2.6vw, 3.75rem);
+    line-height: 1.12;
+    max-width: 30ch;
+    text-wrap: pretty;
+  }
+  .sentence a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-thickness: 0.06em;
+    text-underline-offset: 0.12em;
+  }
+  /* painted words are already marked; an underline through the paint is noise */
+  .sentence a:has(.w) {
+    text-decoration: none;
+  }
+  .w {
+    position: relative;
+    display: inline-block;
+    font-weight: 900;
+    color: var(--paint-ink);
+    isolation: isolate;
+  }
+  .w > span {
+    position: relative;
+  }
+  /* the numbers get road paint: a block laid left to right behind them */
+  .w__paint {
+    position: absolute;
+    left: -0.12em;
+    right: -0.12em;
+    top: 0.12em;
+    bottom: 0.02em;
+    background: var(--paint);
+    transform-origin: 0 50%;
+    transform: scaleX(1);
+    z-index: -1;
+  }
+  /* painted as you read: native scroll timelines, no per-frame script. The text turns to
+     paint-ink as the paint passes it, so it stays readable on the dark theme too. */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      :global(html:not([data-motion='off'])) .w__paint,
+      :global(html:not([data-motion='off'])) .w > span {
+        animation: paint linear both;
+        animation-timeline: view();
+        animation-range: cover 8% cover 38%;
+      }
+      :global(html:not([data-motion='off'])) .w > span {
+        animation-name: inkswap;
+      }
+    }
+  }
+  @keyframes paint {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+  @keyframes inkswap {
+    0%,
+    45% {
+      color: var(--ink);
+    }
+    55%,
+    100% {
+      color: var(--paint-ink);
+    }
+  }
+</style>

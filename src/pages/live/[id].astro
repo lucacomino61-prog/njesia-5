@@ -1,0 +1,185 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Icon from '../../components/Icon.astro';
+import NotFound from '../../components/NotFound.astro';
+import ReportDialog from '../../components/ReportDialog.astro';
+import { t as tr, href } from '../../i18n';
+import { getTownHall, listQuestions, townHallPhase } from '../../lib/queries';
+import { dateLabel, clock, relative, toTiranaWall } from '../../lib/time';
+import { townHallPath, idFromParam } from '../../lib/paths';
+import { canWrite, isTeam } from '../../lib/auth';
+
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+const th = await getTownHall(idFromParam(Astro.params.id), user?.id);
+if (th && decodeURIComponent(path) !== townHallPath(th)) return Astro.redirect(href(lang, townHallPath(th)), 301);
+const phase = th ? townHallPhase(th) : 'ended';
+const questions = th ? await listQuestions(th.id, user?.id) : [];
+const back = href(lang, path);
+const team = isTeam(user);
+const writer = canWrite(user);
+const embed = (() => {
+  if (!th?.stream_url) return null;
+  const yt = /(?:youtube\.com\/(?:watch\?v=|live\/)|youtu\.be\/)([\w-]{6,})/.exec(th.stream_url);
+  if (yt) return `https://www.youtube-nocookie.com/embed/${yt[1]}`;
+  return null;
+})();
+---
+{!th ? <NotFound /> : (
+  <Layout title={th.title} description={th.description || t.live.lead} ogType="article">
+    <article class="wrap th">
+      <a class="signlink back" href={href(lang, '/live')}><Icon name="arrowLeft" />{t.live.back}</a>
+      <header class:list={['th__head', `th__head--${phase}`]}>
+        <p class="meta th__state">
+          {phase === 'live' ? <><span class="dot" aria-hidden="true"></span>{t.live.onAir}</> : phase === 'ended' ? t.live.recap : t.live.next}
+          · {dateLabel(th.starts_at, lang, { capital: true })} · {clock(th.starts_at)}
+        </p>
+        <h1 class="th__title">{th.title}</h1>
+        <p class="th__host">{t.live.hostedBy(th.host_name)}</p>
+        {phase === 'scheduled' && (
+          <p class="th__count" data-countdown={th.starts_at} data-lang={lang}><span class="meta">{t.live.startsIn}</span> <strong class="num" data-cd-text>{relative(th.starts_at, lang)}</strong></p>
+        )}
+      </header>
+
+      {th.description && <p class="th__desc">{th.description}</p>}
+
+      {phase === 'live' && (embed ? (
+        <div class="th__video"><iframe src={embed} title={th.title} loading="lazy" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
+      ) : th.stream_url ? (
+        <a class="btn" href={th.stream_url} target="_blank" rel="noopener"><Icon name="video" />{t.live.watch}</a>
+      ) : null)}
+
+      {phase === 'ended' && th.recap && (
+        <section class="th__recap"><h2 class="h3">{t.live.recap}</h2><p>{th.recap}</p>{th.stream_url && <a class="signlink" href={th.stream_url} target="_blank" rel="noopener">{t.live.recording}<Icon name="external" /></a>}</section>
+      )}
+
+      {phase === 'scheduled' && (
+        <div data-region="remind" class="th__remind">
+          {user ? (
+            <form method="post" action="/do/remind" data-enhance>
+              <input type="hidden" name="townhall" value={th.id} />
+              <input type="hidden" name="back" value={back} />
+              <button class="btn btn--line" type="submit" aria-pressed={th.mine_reminder ? 'true' : 'false'}><Icon name={th.mine_reminder ? 'check' : 'bell'} />{th.mine_reminder ? t.live.reminded : t.live.remind}</button>
+            </form>
+          ) : (
+            <a class="btn btn--line" href={href(lang, '/hyr') + `?pas=${encodeURIComponent(back)}`}><Icon name="bell" />{t.live.remind}</a>
+          )}
+          <p class="meta">{t.live.waiting(th.reminders)}</p>
+        </div>
+      )}
+
+      <section class="qs" data-region="questions" aria-labelledby="qs-h">
+        <div class="qs__head">
+          <h2 class="h3" id="qs-h">{lang === 'sq' ? 'Pyetjet' : 'Questions'}</h2>
+          <p class="meta">{t.live.questions(questions.length)}</p>
+        </div>
+        {phase === 'ended' ? (
+          <p class="meta">{questions.length ? t.live.closed : t.live.closedEmpty}</p>
+        ) : writer ? (
+          <form class="qs__ask" method="post" action="/do/question" data-enhance data-reset>
+            <input type="hidden" name="townhall" value={th.id} />
+            <input type="hidden" name="back" value={back} />
+            <label class="sr-only" for="q-body">{t.live.askPlaceholder}</label>
+            <textarea class="textarea" id="q-body" name="body" required minlength="5" maxlength="500" placeholder={t.live.askPlaceholder}></textarea>
+            <p class="form-error" role="alert"></p>
+            <button class="btn btn--sm" type="submit">{t.live.ask}<Icon name="arrowRight" /></button>
+          </form>
+        ) : (
+          <a class="btn btn--line" href={href(lang, user ? '/ne-pritje' : '/hyr') + `?pas=${encodeURIComponent(back)}`}>{user ? t.auth.needVerify : t.auth.needSignIn}</a>
+        )}
+        {questions.length === 0 ? (
+          phase !== 'ended' && <p class="meta">{t.live.noQuestions}</p>
+        ) : (
+          <ol class="qs__list" role="list">
+            {questions.map((q) => (
+              <li class:list={['q', { 'q--done': q.answered_at }]} data-count-scope>
+                {writer && phase !== 'ended' && !q.answered_at ? (
+                  <form method="post" action="/do/question-vote" data-enhance data-optimistic>
+                    <input type="hidden" name="question" value={q.id} />
+                    <input type="hidden" name="back" value={back} />
+                    <button class="q__vote" type="submit" aria-pressed={q.mine ? 'true' : 'false'} aria-label={`${t.post.upvote}: ${q.votes}`}>
+                      <Icon name="arrowUp" /><span class="num" data-count={q.votes}>{q.votes}</span>
+                    </button>
+                  </form>
+                ) : (
+                  <span class="q__vote q__vote--static"><Icon name="arrowUp" /><span class="num">{q.votes}</span></span>
+                )}
+                <div class="q__body">
+                  <p>{q.body}</p>
+                  <p class="meta">{q.author_name} · {relative(q.created_at, lang)}{q.answered_at && <> · <strong>{t.live.answered}</strong></>}</p>
+                </div>
+                {team && phase !== 'ended' && (
+                  <form method="post" action="/do/townhall" data-enhance>
+                    <input type="hidden" name="op" value="answer" />
+                    <input type="hidden" name="townhall" value={th.id} />
+                    <input type="hidden" name="question" value={q.id} />
+                    <input type="hidden" name="back" value={back} />
+                    <button class="btn btn--quiet btn--sm" type="submit">{q.answered_at ? (lang === 'sq' ? 'Zhbëj' : 'Undo') : (lang === 'sq' ? 'U përgjigj' : 'Mark answered')}</button>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      {team && phase !== 'ended' && (
+        <section class="staff">
+          <h2 class="h3">{lang === 'sq' ? 'Për ekipin' : 'For the team'}</h2>
+          {phase === 'scheduled' ? (
+            <form method="post" action="/do/townhall" class="staff__form">
+              <input type="hidden" name="op" value="live" />
+              <input type="hidden" name="townhall" value={th.id} />
+              <input type="hidden" name="back" value={back} />
+              <div class="field"><label for="su">{lang === 'sq' ? 'Lidhja e transmetimit (YouTube ose Facebook)' : 'Stream link (YouTube or Facebook)'}</label><input class="input" id="su" name="stream_url" type="url" placeholder="https://" /></div>
+              <button class="btn" type="submit"><Icon name="broadcast" />{lang === 'sq' ? 'Fillo live' : 'Go live'}</button>
+            </form>
+          ) : (
+            <form method="post" action="/do/townhall" class="staff__form">
+              <input type="hidden" name="op" value="end" />
+              <input type="hidden" name="townhall" value={th.id} />
+              <input type="hidden" name="back" value={back} />
+              <div class="field"><label for="rc">{lang === 'sq' ? 'Përmbledhje e shkurtër (opsionale)' : 'Short recap (optional)'}</label><textarea class="textarea" id="rc" name="recap"></textarea></div>
+              <button class="btn" type="submit">{lang === 'sq' ? 'Mbyll takimin' : 'End town hall'}</button>
+            </form>
+          )}
+        </section>
+      )}
+    </article>
+    {user && <ReportDialog />}
+  </Layout>
+)}
+
+<style>
+  .th { padding-top: var(--space-6); display: grid; gap: var(--space-6); max-width: 62rem; }
+  .back { justify-self: start; }
+  .th__head { display: grid; gap: var(--space-3); padding: clamp(1.25rem, 1rem + 2vw, 3rem); background: var(--ink); color: var(--ground); }
+  .th__head--live { background: var(--paint); color: var(--paint-ink); }
+  .th__state { color: inherit; display: flex; align-items: center; gap: 0.5em; font-weight: 700; }
+  .dot { width: 12px; height: 12px; border-radius: 99px; background: currentColor; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  .th__title { font-size: clamp(2.4rem, 1rem + 5vw, 5.5rem); text-transform: uppercase; font-weight: 900; line-height: 0.92; }
+  .th__host { font-weight: 700; }
+  .th__count { display: flex; align-items: baseline; gap: 0.6em; }
+  .th__count .meta { color: inherit; }
+  .th__count strong { font-family: var(--font-display); font-size: var(--step-3); font-weight: 900; color: var(--paint); }
+  .th__desc { font-size: var(--step-1); max-width: var(--measure); }
+  .th__video { aspect-ratio: 16 / 9; background: var(--ink); }
+  .th__video iframe { width: 100%; height: 100%; border: 0; }
+  .th__recap { display: grid; gap: var(--space-3); padding-left: var(--space-5); border-left: 6px solid var(--paint); }
+  .th__remind { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
+  .qs { display: grid; gap: var(--space-4); }
+  .qs__head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); }
+  .qs__ask { display: grid; gap: var(--space-3); }
+  .qs__ask .btn { justify-self: start; }
+  .qs__list { list-style: none; padding: 0; display: grid; gap: var(--space-3); }
+  .q { display: grid; grid-template-columns: auto 1fr auto; gap: var(--space-4); align-items: start; padding: var(--space-4); border: 2px solid var(--line-soft); }
+  .q--done { border-color: var(--paint); }
+  .q__vote { display: grid; justify-items: center; gap: 2px; min-width: 52px; min-height: 52px; padding: 6px; border: 2.5px solid var(--ink); background: transparent; font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; }
+  .q__vote[aria-pressed='true'] { background: var(--paint); color: var(--paint-ink); border-color: var(--paint); }
+  .q__vote--static { border-color: var(--line-soft); }
+  .q__body { display: grid; gap: var(--space-1); }
+  .staff { display: grid; gap: var(--space-3); padding: var(--space-5); border: 2.5px dashed var(--ink); }
+  .staff__form { display: grid; gap: var(--space-3); }
+  .staff__form .btn { justify-self: start; }
+</style>

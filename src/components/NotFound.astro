@@ -1,0 +1,29 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Icon from './Icon.astro';
+import { t as tr, href } from '../i18n';
+const { lang } = Astro.locals;
+const t = tr(lang);
+Astro.response.status = 404;
+---
+<Layout title={t.notFound.title} index={false}>
+  <section class="wrap nf">
+    <p class="nf__code" aria-hidden="true">404</p>
+    <h1 class="poster">{t.notFound.title}</h1>
+    <p class="lead">{t.notFound.lead}</p>
+    <div class="nf__acts">
+      <a class="btn" href={href(lang, '/')}><Icon name="arrowLeft" />{t.notFound.home}</a>
+      <a class="btn btn--line" href={href(lang, '/forumi')}>{t.nav.forum}</a>
+    </div>
+  </section>
+</Layout>
+<style>
+  .nf { display: grid; gap: var(--space-5); padding-block: var(--space-8); }
+  .nf__code {
+    font-family: var(--font-display); font-weight: 900; font-size: clamp(6rem, 3rem + 14vw, 16rem); line-height: 0.8;
+    color: transparent; -webkit-text-stroke: 3px var(--ink);
+    background: var(--zebra) bottom / 100% 0.18em no-repeat;
+    justify-self: start;
+  }
+  .nf__acts { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+</style>

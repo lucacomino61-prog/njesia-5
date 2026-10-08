@@ -1,0 +1,148 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Icon from '../../components/Icon.astro';
+import NotFound from '../../components/NotFound.astro';
+import { t as tr, href } from '../../i18n';
+import { getEvent } from '../../lib/queries';
+import { all } from '../../lib/db';
+import { dateLabel, dayMonth, clock, relative, icsDate } from '../../lib/time';
+import { eventPath, idFromParam } from '../../lib/paths';
+import { canWrite, isTeam } from '../../lib/auth';
+import { env } from 'cloudflare:workers';
+
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+const e = await getEvent(idFromParam(Astro.params.id), user?.id);
+const ok = e && e.state === 'visible';
+if (ok && decodeURIComponent(path) !== eventPath(e)) return Astro.redirect(href(lang, eventPath(e)), 301);
+const site = env.SITE_URL.replace(/\/$/, '');
+const url = ok ? site + href(lang, eventPath(e)) : '';
+const past = ok && e.ends_at < Date.now();
+const team = isTeam(user);
+const attendees = ok && team
+  ? await all<{ name: string; checked_in_at: number | null; user_id: string }>(
+      'SELECT u.name, r.checked_in_at, r.user_id FROM rsvp r JOIN "user" u ON u.id = r.user_id WHERE r.event_id = ? ORDER BY u.name',
+      e.id,
+    )
+  : [];
+const gcal = ok
+  ? 'https://calendar.google.com/calendar/render?' +
+    new URLSearchParams({
+      action: 'TEMPLATE',
+      text: e.title,
+      dates: `${icsDate(e.starts_at)}/${icsDate(e.ends_at)}`,
+      details: `${e.description}\n\n${url}`,
+      location: e.kind === 'online' ? url : `${e.place_text}, Tiranë`,
+    }).toString()
+  : '';
+const dm = ok ? dayMonth(e.starts_at, lang) : { day: '', month: '' };
+const back = href(lang, path);
+const jsonld = ok
+  ? {
+      '@context': 'https://schema.org',
+      '@type': 'Event',
+      name: e.title,
+      description: e.description,
+      startDate: new Date(e.starts_at).toISOString(),
+      endDate: new Date(e.ends_at).toISOString(),
+      eventAttendanceMode: e.kind === 'online' ? 'https://schema.org/OnlineEventAttendanceMode' : 'https://schema.org/OfflineEventAttendanceMode',
+      eventStatus: 'https://schema.org/EventScheduled',
+      location:
+        e.kind === 'online'
+          ? { '@type': 'VirtualLocation', url }
+          : { '@type': 'Place', name: e.place_text, address: { '@type': 'PostalAddress', addressLocality: 'Tiranë', addressCountry: 'AL' } },
+      organizer: { '@type': 'Organization', name: t.site.name, url: site },
+      isAccessibleForFree: true,
+      url,
+    }
+  : undefined;
+---
+{!ok ? <NotFound /> : (
+  <Layout title={e.title} description={`${dateLabel(e.starts_at, lang)}, ${clock(e.starts_at)}. ${e.description.slice(0, 120)}`} ogType="article" jsonld={jsonld}>
+    <article class="wrap ev">
+      <a class="signlink back" href={href(lang, '/ngjarje')}><Icon name="arrowLeft" />{t.events.back}</a>
+      <div class="ev__top">
+        <p class="ev__date" aria-hidden="true"><span class="num">{dm.day}</span><span>{dm.month}</span></p>
+        <div class="ev__head">
+          <p class="meta"><span class="tag tag--ink">{e.kind === 'online' ? t.events.online : t.events.inPerson}</span> {relative(e.starts_at, lang)}</p>
+          <h1 class="ev__title">{e.title}</h1>
+        </div>
+      </div>
+      <dl class="ev__facts">
+        <div><dt><Icon name="clock" />{t.events.when}</dt><dd>{dateLabel(e.starts_at, lang, { capital: true })}, {clock(e.starts_at)}-{clock(e.ends_at)}</dd></div>
+        <div><dt><Icon name={e.kind === 'online' ? 'video' : 'mapPin'} />{t.events.where}</dt><dd>{e.kind === 'online' ? t.events.online : e.place_text}</dd></div>
+      </dl>
+      {e.description && <div class="ev__desc">{e.description.split(/\n{2,}/).map((p) => <p>{p}</p>)}</div>}
+
+      <div class="ev__act" data-region="rsvp" data-count-scope>
+        {past ? (
+          <p class="h3">{t.events.ended}</p>
+        ) : canWrite(user) ? (
+          <form method="post" action="/do/rsvp" data-enhance data-optimistic>
+            <input type="hidden" name="event" value={e.id} />
+            <input type="hidden" name="back" value={back} />
+            <button class="btn" type="submit" aria-pressed={e.mine ? 'true' : 'false'}>
+              <Icon name={e.mine ? 'check' : 'calendarPlus'} />{e.mine ? t.events.goingDone : t.events.going}
+            </button>
+          </form>
+        ) : (
+          <a class="btn" href={href(lang, user ? '/ne-pritje' : '/hyr') + `?pas=${encodeURIComponent(back)}`}><Icon name="calendarPlus" />{t.events.going}</a>
+        )}
+        <p class="ev__count"><strong class="num" data-count={e.going}>{e.going}</strong> {past ? t.events.countPast(e.going).replace(/^\d+ /, '') : t.events.count(e.going).replace(/^\d+ /, '')}</p>
+      </div>
+
+      {!past && (
+        <div class="ev__tools">
+          <details class="cal">
+            <summary class="btn btn--line"><Icon name="calendarPlus" />{t.events.calendar}<Icon name="caret" /></summary>
+            <ul role="list" class="cal__menu">
+              <li><a href={gcal} target="_blank" rel="noopener">{t.events.calendarGoogle}</a></li>
+              <li><a href={`/ngjarje/${e.id}/kalendar.ics`} download={`ngjarje-${e.id}.ics`}>{t.events.calendarFile}</a></li>
+            </ul>
+          </details>
+          <button class="btn btn--line" type="button" data-share={url} data-title={e.title} data-copied={t.post.copied}><Icon name="share" />{t.post.share}</button>
+          {e.kind === 'online' && e.online_url && e.mine ? <a class="btn" href={e.online_url} target="_blank" rel="noopener"><Icon name="video" />{t.events.join}</a> : null}
+        </div>
+      )}
+
+      {team && (
+        <section class="team">
+          <h2 class="h3">{lang === 'sq' ? 'Kush vjen' : 'Who is coming'} ({attendees.length})</h2>
+          {attendees.length === 0 ? <p class="meta">{lang === 'sq' ? 'Askush ende.' : 'Nobody yet.'}</p> : (
+            <ul role="list" class="team__list">{attendees.map((a) => <li>{a.name}{a.checked_in_at ? ' ✓' : ''}</li>)}</ul>
+          )}
+          <a class="signlink" href={`/ngjarje/${e.id}/lista.csv`}>{lang === 'sq' ? 'Shkarko listën' : 'Download the list'}<Icon name="arrowRight" /></a>
+        </section>
+      )}
+    </article>
+  </Layout>
+)}
+
+<style>
+  .ev { padding-top: var(--space-6); display: grid; gap: var(--space-6); }
+  .back { justify-self: start; }
+  .ev__top { display: flex; flex-wrap: wrap; gap: var(--space-5); align-items: end; }
+  .ev__date {
+    display: grid; justify-items: center; align-content: center; width: clamp(7rem, 5rem + 8vw, 11rem); aspect-ratio: 1;
+    background: var(--ink); color: var(--paint); font-family: var(--font-display); font-weight: 900; line-height: 0.85;
+  }
+  .ev__date .num { font-size: clamp(4.5rem, 3rem + 6vw, 8rem); }
+  .ev__date span:last-child { font-size: clamp(1.3rem, 1rem + 1vw, 1.9rem); letter-spacing: 0.08em; }
+  .ev__head { display: grid; gap: var(--space-3); flex: 1 1 20rem; }
+  .ev__title { font-size: clamp(2.6rem, 1rem + 5vw, 6rem); text-transform: uppercase; font-weight: 900; line-height: 0.92; max-width: 18ch; }
+  .ev__facts { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); max-width: 52rem; }
+  .ev__facts dt { display: flex; align-items: center; gap: 0.4em; font-weight: 700; color: var(--ink-2); }
+  .ev__facts dd { margin: 0; font-size: var(--step-1); font-weight: 700; }
+  .ev__desc { display: grid; gap: var(--space-3); max-width: var(--measure); font-size: var(--step-1); }
+  .ev__act { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-5); padding-block: var(--space-5); border-block: 2.5px solid var(--ink); }
+  .ev__count { font-family: var(--font-display); font-weight: 800; font-size: 2.2rem; text-transform: uppercase; line-height: 1; }
+  .ev__tools { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: start; }
+  .cal { position: relative; }
+  .cal summary { list-style: none; }
+  .cal summary::-webkit-details-marker { display: none; }
+  .cal__menu { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; min-width: 18rem; list-style: none; padding: var(--space-2); background: var(--ground); border: 2.5px solid var(--ink); }
+  .cal__menu a { display: flex; align-items: center; min-height: 44px; padding-inline: var(--space-3); font-weight: 700; text-decoration: none; }
+  @media (hover: hover) and (pointer: fine) { .cal__menu a:hover { background: var(--paint); color: var(--paint-ink); } }
+  .team { display: grid; gap: var(--space-3); padding: var(--space-5); border: 2.5px dashed var(--ink); max-width: 52rem; }
+  .team__list { list-style: none; padding: 0; columns: 2 12rem; }
+</style>

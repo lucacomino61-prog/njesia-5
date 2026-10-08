@@ -1,0 +1,22 @@
+{
+  "id": "/",
+  "name": "Njësia 5 · Forumi i banorëve",
+  "short_name": "Njësia 5",
+  "description": "Forumi i banorëve të Bllokut, Selitës dhe Tiranës së Re.",
+  "lang": "sq",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f3f0",
+  "theme_color": "#1c1d1f",
+  "icons": [
+    { "src": "/icons/192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Forumi", "url": "/forumi" },
+    { "name": "Ngjarje", "url": "/ngjarje" },
+    { "name": "Shkruaj", "url": "/shkruaj" }
+  ]
+}

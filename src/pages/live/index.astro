@@ -1,0 +1,99 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Icon from '../../components/Icon.astro';
+import { t as tr, href } from '../../i18n';
+import { listTownHalls, townHallPhase } from '../../lib/queries';
+import { dateLabel, clock } from '../../lib/time';
+import { townHallPath } from '../../lib/paths';
+import { isTeam } from '../../lib/auth';
+
+const { lang, user } = Astro.locals;
+const t = tr(lang);
+const halls = await listTownHalls(user?.id);
+const live = halls.find((h) => townHallPhase(h) === 'live');
+const upcoming = halls.filter((h) => townHallPhase(h) === 'scheduled').sort((a, b) => a.starts_at - b.starts_at);
+const next = live ?? upcoming[0];
+const later = upcoming.filter((h) => h !== next);
+const past = halls.filter((h) => townHallPhase(h) === 'ended');
+---
+<Layout title={t.live.title} description={t.live.lead}>
+  <div class="wrap page">
+    <header class="page__head">
+      <h1 class="poster">{t.live.title}</h1>
+      <p class="lead">{t.live.lead}</p>
+    </header>
+    {isTeam(user) && <a class="btn btn--line btn--sm teamnew" href={href(lang, '/ekipi/publiko#live')}><Icon name="broadcast" />{lang === 'sq' ? 'Cakto takim live' : 'Schedule town hall'}</a>}
+
+    {next ? (
+      <a class:list={['next', { 'next--live': next === live }]} href={href(lang, townHallPath(next))}>
+        <span class="next__label">{next === live ? <><span class="dot" aria-hidden="true"></span>{t.live.onAir}</> : t.live.next}</span>
+        <span class="next__title">{next.title}</span>
+        <span class="next__when">{dateLabel(next.starts_at, lang, { capital: true })} · {clock(next.starts_at)}</span>
+        {next !== live && (
+          <span class="next__count" data-countdown={next.starts_at} data-lang={lang}>
+            <span class="meta">{t.live.startsIn}</span>
+            <strong class="num" data-cd-text></strong>
+          </span>
+        )}
+        <span class="next__stats">{t.live.questions(next.questions)} · {t.live.waiting(next.reminders)}</span>
+      </a>
+    ) : (
+      <div class="empty">
+        <p class="h3">{t.live.empty}</p>
+        <p class="meta">{t.live.emptyBody}</p>
+      </div>
+    )}
+
+    {later.length > 0 && (
+      <ul class="list" role="list">
+        {later.map((h) => <li><a href={href(lang, townHallPath(h))}><span class="list__title">{h.title}</span><span class="meta">{dateLabel(h.starts_at, lang)} · {clock(h.starts_at)}</span></a></li>)}
+      </ul>
+    )}
+
+    {past.length > 0 && (
+      <section class="past" aria-labelledby="h-past">
+        <h2 class="h2" id="h-past">{t.live.past}</h2>
+        <ul class="list" role="list" data-reveal>
+          {past.map((h) => (
+            <li>
+              <a href={href(lang, townHallPath(h))}>
+                <span class="meta">{dateLabel(h.starts_at, lang, { capital: true })} · {clock(h.starts_at)}</span>
+                <span class="list__title">{h.title}</span>
+                {h.recap && <span class="list__recap">{h.recap}</span>}
+                <span class="meta">{t.live.questions(h.questions)}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .page { padding-top: var(--space-7); }
+  .page__head { display: grid; gap: var(--space-4); margin-bottom: var(--space-6); }
+  .teamnew { margin-bottom: var(--space-6); }
+  .next {
+    display: grid; gap: var(--space-3); padding: clamp(1.25rem, 1rem + 2vw, 3rem);
+    background: var(--ink); color: var(--ground); text-decoration: none; max-width: 62rem;
+  }
+  .next--live { background: var(--paint); color: var(--paint-ink); }
+  .next__label { display: inline-flex; align-items: center; gap: 0.5em; font-weight: 700; }
+  .dot { width: 12px; height: 12px; border-radius: 99px; background: currentColor; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  .next__title { font-family: var(--font-display); font-weight: 900; text-transform: uppercase; font-size: var(--step-4); line-height: 0.9; max-width: 18ch; }
+  .next__when { font-weight: 700; font-size: var(--step-1); }
+  .next__count { display: grid; gap: 0; }
+  .next__count .meta { color: inherit; opacity: 0.85; }
+  .next__count strong { font-family: var(--font-display); font-weight: 900; font-size: var(--step-3); color: var(--paint); }
+  .next--live .next__count strong { color: inherit; }
+  .next__stats { font-weight: 700; }
+  .empty { display: grid; gap: var(--space-2); padding-block: var(--space-6); }
+  .list { list-style: none; padding: 0; max-width: 62rem; border-top: 2.5px solid var(--ink); margin-top: var(--space-6); }
+  .list li { border-bottom: 2px solid var(--line-soft); }
+  .list a { display: grid; gap: var(--space-1); padding-block: var(--space-4); text-decoration: none; }
+  .list__title { font-family: var(--font-display); font-weight: 800; font-size: var(--step-2); line-height: 1; }
+  .list__recap { color: var(--ink-2); max-width: var(--measure); }
+  .past { margin-top: var(--space-9); }
+</style>

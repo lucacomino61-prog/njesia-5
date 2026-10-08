@@ -1,0 +1,23 @@
+---
+// The report form as a page, for visitors without JavaScript (the dialog does the same job).
+import Layout from '../layouts/Layout.astro';
+import ReportDialog from '../components/ReportDialog.astro';
+import { t as tr, href } from '../i18n';
+import { safeBack } from '../lib/respond';
+
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+if (!user) return Astro.redirect(href(lang, '/hyr') + `?pas=${encodeURIComponent(href(lang, path) + Astro.url.search)}`, 303);
+const type = Astro.url.searchParams.get('lloji') ?? '';
+const id = (Astro.url.searchParams.get('id') ?? '').slice(0, 32);
+const back = safeBack(Astro.url.searchParams.get('pas'), href(lang, '/forumi'));
+---
+<Layout title={t.report.title} index={false}>
+  <section class="wrap rpage">
+    <h1 class="h2">{t.report.title}</h1>
+    <ReportDialog asPage={{ type, id, back }} />
+  </section>
+</Layout>
+<style>
+  .rpage { display: grid; gap: var(--space-5); padding-top: var(--space-7); max-width: 40rem; }
+</style>

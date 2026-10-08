@@ -1,0 +1,172 @@
+---
+import TeamShell from '../../components/TeamShell.astro';
+import { href, t as tr } from '../../i18n';
+import { isTeam } from '../../lib/auth';
+import { all, one } from '../../lib/db';
+import { relative, DAY, HOUR } from '../../lib/time';
+import { postPath } from '../../lib/paths';
+import { formatPhone, isPhoneEmail } from '../../lib/phone';
+
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+const sq = lang === 'sq';
+if (!user) return Astro.redirect(href(lang, '/hyr') + `?pas=${encodeURIComponent(href(lang, path))}`, 303);
+if (!isTeam(user)) return Astro.redirect(href(lang, '/'), 303);
+const now = Date.now();
+const week = now - 7 * DAY;
+
+const [residents, verified, newWeek, threadsWeek, awaiting, stale, reports, history, pending] = await Promise.all([
+  one<{ n: number }>("SELECT COUNT(*) AS n FROM \"user\" WHERE COALESCE(role, 'resident') = 'resident' AND closedAt IS NULL"),
+  one<{ n: number }>("SELECT COUNT(*) AS n FROM \"user\" WHERE COALESCE(role, 'resident') = 'resident' AND approvedAt IS NOT NULL AND closedAt IS NULL"),
+  one<{ n: number }>('SELECT COUNT(*) AS n FROM "user" WHERE createdAt >= ?', new Date(week).toISOString()),
+  one<{ n: number }>("SELECT COUNT(*) AS n FROM post WHERE kind IN ('topic','proposal') AND created_at >= ?", week),
+  // the 24-hour promise: residents' threads and proposals with no reply from the team yet
+  all<{ id: string; kind: string; title: string; created_at: number; author_name: string }>(
+    `SELECT p.id, p.kind, p.title, p.created_at, u.name AS author_name FROM post p JOIN "user" u ON u.id = p.author_id
+     WHERE p.kind IN ('topic','proposal') AND p.state = 'visible' AND p.team_reply_at IS NULL AND COALESCE(u.role, 'resident') = 'resident'
+     ORDER BY p.created_at`,
+  ),
+  all<{ id: string; title: string; last: number }>(
+    `SELECT p.id, p.title, MAX(pu.created_at) AS last FROM post p JOIN proposal_update pu ON pu.post_id = p.id
+     WHERE p.kind = 'proposal' AND p.state = 'visible' AND p.status IN ('submitted','under_review','planned')
+     GROUP BY p.id HAVING last < ? ORDER BY last`,
+    now - 7 * DAY,
+  ),
+  all<{ target_type: string; target_id: string; n: number; reasons: string; first: number; state: string | null; label: string | null }>(
+    `SELECT r.target_type, r.target_id, COUNT(*) AS n, GROUP_CONCAT(r.reason) AS reasons, MIN(r.created_at) AS first,
+       COALESCE(p.state, c.state, q.state, e.state, pl.state) AS state,
+       COALESCE(p.title, substr(c.body, 1, 140), substr(q.body, 1, 140), e.title, pl.question) AS label
+     FROM report r
+     LEFT JOIN post p ON r.target_type = 'post' AND p.id = r.target_id
+     LEFT JOIN comment c ON r.target_type = 'comment' AND c.id = r.target_id
+     LEFT JOIN question q ON r.target_type = 'question' AND q.id = r.target_id
+     LEFT JOIN event e ON r.target_type = 'event' AND e.id = r.target_id
+     LEFT JOIN poll pl ON r.target_type = 'poll' AND pl.id = r.target_id
+     WHERE r.resolved_at IS NULL GROUP BY r.target_type, r.target_id ORDER BY first`,
+  ),
+  all<{ action: string; target_type: string; actor: string; created_at: number; detail: string }>(
+    'SELECT a.action, a.target_type, u.name AS actor, a.created_at, a.detail FROM audit_log a LEFT JOIN "user" u ON u.id = a.actor_id ORDER BY a.created_at DESC LIMIT 15',
+  ),
+  all<{ id: string; name: string; email: string; emailVerified: number; phoneNumber: string | null; street: string | null; neighbourhood: string | null; joinNote: string | null; createdAt: string }>(
+    "SELECT id, name, email, emailVerified, phoneNumber, street, neighbourhood, joinNote, createdAt FROM \"user\" WHERE approvedAt IS NULL AND declinedAt IS NULL AND closedAt IS NULL AND COALESCE(role, 'resident') = 'resident' ORDER BY createdAt",
+  ),
+]);
+const back = href(lang, '/ekipi');
+---
+<TeamShell title={sq ? 'Paneli i ekipit' : 'Team panel'} tab="overview">
+  <div class="stats">
+    <p class="stat"><strong class="num">{pending.length}</strong>{sq ? 'presin miratim' : 'awaiting approval'}</p>
+    <p class="stat"><strong class="num">{reports.length}</strong>{sq ? 'për shqyrtim' : 'to review'}</p>
+    <p class="stat"><strong class="num">{awaiting.length}</strong>{sq ? 'presin përgjigje' : 'awaiting a reply'}</p>
+    <p class="stat"><strong class="num">{residents?.n ?? 0}</strong>{sq ? `banorë · ${verified?.n ?? 0} të miratuar` : `residents · ${verified?.n ?? 0} approved`}</p>
+    <p class="stat"><strong class="num">{newWeek?.n ?? 0}</strong>{sq ? 'të rinj këtë javë' : 'new this week'}</p>
+    <p class="stat"><strong class="num">{threadsWeek?.n ?? 0}</strong>{sq ? 'tema e propozime këtë javë' : 'topics and proposals this week'}</p>
+  </div>
+
+  <section class="panel" data-region="pending">
+    <h2 class="h3">{sq ? 'Presin miratim' : 'Waiting for approval'}</h2>
+    <p class="meta">{sq ? 'Llogari të reja. Pa miratim mund të lexojnë, por jo të shkruajnë apo të votojnë. Nëse ka numër telefoni, mund ta telefononi për ta njohur.' : 'New accounts. Until approved they can read but not write or vote. If there is a phone number, you can call to check who it is.'}</p>
+    {pending.length === 0 ? <p class="meta">{sq ? 'Askush nuk pret.' : 'Nobody is waiting.'}</p> : (
+      <table class="tbl">
+        <thead><tr><th>{sq ? 'Personi' : 'Person'}</th><th>{sq ? 'Shënimi' : 'Note'}</th><th></th></tr></thead>
+        <tbody>
+          {pending.map((p) => (
+            <tr>
+              <td>
+                <strong>{p.name}</strong> {p.emailVerified ? <span class="tag tag--paint">{sq ? 'Email i konfirmuar' : 'Email confirmed'}</span> : <span class="tag">{sq ? 'Email pa konfirmuar' : 'Email not confirmed'}</span>}<br />
+                {p.street && <span>{p.street}<br /></span>}
+                <span class="meta">
+                  {p.phoneNumber ? <a href={`tel:${p.phoneNumber}`}>{formatPhone(p.phoneNumber)}</a> : null}
+                  {p.phoneNumber && !isPhoneEmail(p.email) ? ' · ' : ''}
+                  {!isPhoneEmail(p.email) ? p.email : ''}
+                  {p.neighbourhood ? ` · ${p.neighbourhood}` : ''} · {relative(Date.parse(p.createdAt), lang)}
+                </span>
+              </td>
+              <td>{p.joinNote ?? <span class="meta">-</span>}</td>
+              <td>
+                <div class="row-acts">
+                  {(['approve', 'decline'] as const).map((d) => (
+                    <form method="post" action={`/do/${d}`} data-enhance>
+                      <input type="hidden" name="user" value={p.id} />
+                      <input type="hidden" name="back" value={back} />
+                      <button class:list={['btn', 'btn--sm', d === 'approve' ? '' : 'btn--line']} type="submit">{d === 'approve' ? (sq ? 'Mirato' : 'Approve') : (sq ? 'Refuzo' : 'Decline')}</button>
+                    </form>
+                  ))}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </section>
+
+  <section class="panel">
+    <h2 class="h3">{sq ? 'Presin përgjigje (premtimi: 24 orë)' : 'Waiting for a reply (promise: 24 hours)'}</h2>
+    {awaiting.length === 0 ? <p class="meta">{sq ? 'Të gjithë kanë marrë përgjigje.' : 'Everyone has had a reply.'}</p> : (
+      <table class="tbl">
+        <thead><tr><th>{sq ? 'Tema' : 'Topic'}</th><th>{sq ? 'Nga' : 'By'}</th><th>{sq ? 'Koha' : 'Time'}</th></tr></thead>
+        <tbody>
+          {awaiting.map((a) => {
+            const left = Math.round((a.created_at + 24 * HOUR - now) / HOUR);
+            return (
+              <tr>
+                <td><a href={href(lang, postPath(a))}>{a.title}</a></td>
+                <td>{a.author_name}</td>
+                <td class:list={{ over: left < 0 }}>{left >= 0 ? (sq ? `${left} orë mbeten` : `${left} h left`) : (sq ? `Vonesë ${-left} orë` : `Overdue ${-left} h`)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    )}
+  </section>
+
+  {stale.length > 0 && (
+    <section class="panel">
+      <h2 class="h3">{sq ? 'Propozime pa lajm prej 7 ditësh' : 'Proposals with no news for 7 days'}</h2>
+      <ul role="list">{stale.map((s) => <li><a href={href(lang, postPath({ kind: 'proposal', id: s.id, title: s.title }))}>{s.title}</a> <span class="meta">{relative(s.last, lang)}</span></li>)}</ul>
+    </section>
+  )}
+
+  <section class="panel" data-region="reports">
+    <h2 class="h3">{sq ? 'Raportime të hapura' : 'Open reports'}</h2>
+    <p class="meta">{sq ? 'Çdo rresht është një përmbajtje. Mbaje nëse është në rregull, hiqe nëse shkel rregullat. Kush raportoi mbetet privat.' : 'Each row is one item. Keep it if it is fine, remove it if it breaks the rules. Who reported stays private.'}</p>
+    {reports.length === 0 ? <p class="meta">{sq ? 'Asgjë për të shqyrtuar.' : 'Nothing to review.'}</p> : (
+      <table class="tbl">
+        <thead><tr><th>{sq ? 'Përmbajtja' : 'Content'}</th><th>{sq ? 'Arsyet' : 'Reasons'}</th><th></th></tr></thead>
+        <tbody>
+          {reports.map((r) => (
+            <tr>
+              <td>
+                <span class="tag">{r.target_type}</span> {r.label ?? r.target_id}
+                {r.state === 'review' && <span class="tag tag--paint">{sq ? 'E fshehur automatikisht' : 'Auto-hidden'}</span>}
+              </td>
+              <td>{r.n} · {[...new Set(r.reasons.split(','))].map((x) => t.report.reasons[x] ?? x).join(', ')}</td>
+              <td>
+                <div class="row-acts">
+                  {(['keep', 'remove'] as const).map((d) => (
+                    <form method="post" action="/do/moderate" data-enhance>
+                      <input type="hidden" name="type" value={r.target_type} />
+                      <input type="hidden" name="id" value={r.target_id} />
+                      <input type="hidden" name="decision" value={d} />
+                      <input type="hidden" name="back" value={back} />
+                      <button class:list={['btn', 'btn--sm', d === 'keep' ? 'btn--line' : 'btn--ink']} type="submit">{d === 'keep' ? (sq ? 'Mbaje' : 'Keep') : (sq ? 'Hiqe' : 'Remove')}</button>
+                    </form>
+                  ))}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </section>
+
+  <section class="panel">
+    <h2 class="h3">{sq ? 'Historiku i vendimeve' : 'Decision history'}</h2>
+    {history.length === 0 ? <p class="meta">{sq ? 'Ende asnjë vendim.' : 'No decisions yet.'}</p> : (
+      <ul role="list">{history.map((h) => <li><strong>{h.actor ?? '?'}</strong> · {h.action} · {h.target_type} <span class="meta">{relative(h.created_at, lang)}</span></li>)}</ul>
+    )}
+  </section>
+</TeamShell>

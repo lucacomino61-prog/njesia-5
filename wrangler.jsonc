@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "njesia5",
+  "main": "@astrojs/cloudflare/entrypoints/server",
+  "compatibility_date": "2026-09-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "binding": "ASSETS", "directory": "./dist" },
+  // Local development runs against simulated D1 and KV (.wrangler/state). The ids below are
+  // placeholders: `wrangler d1 create njesia5` and `wrangler kv namespace create MEDIA` give the
+  // real ones before a deploy (only when Luca says deploy).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "njesia5",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Photos (and the session store Astro asks for) live in Workers KV; R2 is not assumed to be
+  // enabled on the account (error 10042 otherwise). Only src/lib/media.ts touches MEDIA.
+  "kv_namespaces": [
+    { "binding": "MEDIA", "id": "00000000000000000000000000000000" },
+    { "binding": "SESSION", "id": "00000000000000000000000000000001" }
+  ],
+  "vars": {
+    "SITE_URL": "http://127.0.0.1:3750",
+    "ENVIRONMENT": "development"
+  },
+  "observability": { "enabled": true },
+  "workers_dev": true,
+  "preview_urls": false
+}

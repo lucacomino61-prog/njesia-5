@@ -1,0 +1,83 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Icon from '../../components/Icon.astro';
+import { t as tr, href } from '../../i18n';
+import { newsPosts } from '../../lib/queries';
+import { relative, dateLabel } from '../../lib/time';
+import { postPath } from '../../lib/paths';
+import { isTeam } from '../../lib/auth';
+
+const { lang, user } = Astro.locals;
+const t = tr(lang);
+const CATS = ['decision', 'news', 'activity', 'success_story', 'new_business', 'neighbor'];
+const raw = Astro.url.searchParams.get('kategoria');
+const cat = raw && CATS.includes(raw) ? raw : null;
+const posts = await newsPosts({ category: cat, viewer: user?.id, limit: 40 });
+const [lead, ...rest] = posts;
+---
+<Layout title={cat ? `${t.decisions.title}: ${t.decisions.categories[cat]}` : t.decisions.title} description={t.decisions.lead}>
+  <div class="wrap page">
+    <header class="page__head">
+      <h1 class="poster">{t.decisions.title}</h1>
+      <p class="lead">{t.decisions.lead}</p>
+    </header>
+    <nav class="chips cats" aria-label={t.decisions.title}>
+      <a class="chip" href={href(lang, '/vendime')} aria-current={!cat ? 'page' : undefined}>{t.decisions.categories.all}</a>
+      {CATS.map((c) => <a class="chip" href={href(lang, `/vendime?kategoria=${c}`)} aria-current={cat === c ? 'page' : undefined}>{t.decisions.categories[c]}</a>)}
+    </nav>
+    {isTeam(user) && <a class="btn btn--line btn--sm teamnew" href={href(lang, '/ekipi/publiko')}><Icon name="pencil" />{lang === 'sq' ? 'Publiko lajm ose vendim' : 'Publish news or a decision'}</a>}
+
+    {!lead ? (
+      <p class="h3 empty">{t.decisions.empty}</p>
+    ) : (
+      <>
+        <article class="lead-post">
+          <p class="meta">
+            <span class="tag tag--ink">{t.decisions.categories[lead.category ?? 'news']}</span>
+            {lead.pinned ? <span class="tag tag--paint">{t.decisions.pinned}</span> : null}
+            <span>{dateLabel(lead.created_at, lang)}</span>
+          </p>
+          <h2 class="lead-post__title"><a href={href(lang, postPath(lead))}>{lead.title}</a></h2>
+          <p class="lead-post__body">{lead.body.length > 320 ? lead.body.slice(0, 317).trimEnd() + '…' : lead.body}</p>
+          <a class="signlink" href={href(lang, postPath(lead))}>{lang === 'sq' ? 'Lexo' : 'Read'}<Icon name="arrowRight" /></a>
+        </article>
+        <ol class="list" role="list" data-reveal>
+          {rest.map((n) => (
+            <li>
+              <a href={href(lang, postPath(n))}>
+                <span class="list__cat meta">{t.decisions.categories[n.category ?? 'news']}</span>
+                <span class="list__title">{n.title}</span>
+                <span class="list__meta meta">{relative(n.created_at, lang)} · {t.comments.title(n.comments)}</span>
+              </a>
+            </li>
+          ))}
+        </ol>
+      </>
+    )}
+  </div>
+</Layout>
+
+<style>
+  .page { padding-top: var(--space-7); }
+  .page__head { display: grid; gap: var(--space-4); margin-bottom: var(--space-6); }
+  .cats { margin-bottom: var(--space-6); }
+  .teamnew { margin-bottom: var(--space-6); }
+  .empty { padding-block: var(--space-8); }
+  .lead-post {
+    display: grid; gap: var(--space-4); padding: var(--space-6);
+    background: var(--ink); color: var(--ground); margin-bottom: var(--space-7);
+  }
+  .lead-post .meta { color: var(--ground); display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+  .lead-post .tag--ink { background: var(--ground); color: var(--ink); border-color: var(--ground); }
+  .lead-post__title { font-size: var(--step-4); text-transform: uppercase; max-width: 20ch; }
+  .lead-post__title a { text-decoration: none; }
+  .lead-post__body { max-width: var(--measure); font-size: var(--step-1); }
+  .lead-post .signlink { color: var(--ground); justify-self: start; }
+  .list { list-style: none; padding: 0; border-top: 2.5px solid var(--ink); max-width: 62rem; }
+  .list li { border-bottom: 2px solid var(--line-soft); }
+  .list a { display: grid; gap: var(--space-1); padding-block: var(--space-4); text-decoration: none; }
+  .list__title { font-family: var(--font-display); font-weight: 800; font-size: var(--step-2); line-height: 1; }
+  @media (hover: hover) and (pointer: fine) {
+    .list a:hover .list__title { text-decoration: underline; text-decoration-color: var(--paint); text-decoration-thickness: 0.14em; }
+  }
+</style>

@@ -1,0 +1,73 @@
+---
+// Confirm the email with the 6-digit code sent at sign-up (or a fresh one). Then the account
+// waits for the team's approval.
+import AuthShell from '../components/AuthShell.astro';
+import Icon from '../components/Icon.astro';
+import { t as tr, href } from '../i18n';
+import { callAuth, errorText, readForm, redirectWith } from '../lib/authflow';
+import { safeBack } from '../lib/respond';
+import { devOutbox } from '../lib/outbox';
+import { isApproved } from '../lib/auth';
+import { one } from '../lib/db';
+
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+const pas = safeBack(Astro.url.searchParams.get('pas'), href(lang, '/'));
+if (!user) return Astro.redirect(href(lang, '/hyr') + `?pas=${encodeURIComponent(href(lang, path) + Astro.url.search)}`, 303);
+const after = isApproved(user) ? pas : href(lang, '/ne-pritje') + `?pas=${encodeURIComponent(pas)}`;
+if (user.emailVerified && Astro.request.method === 'GET') return Astro.redirect(after, 303);
+
+let error = '';
+let notice = '';
+if (Astro.request.method === 'POST') {
+  const f = await readForm(Astro);
+  if (f.get('op') === 'resend') {
+    const r = await callAuth((a) =>
+      a.api.sendVerificationOTP({ body: { email: user.email, type: 'email-verification' }, headers: Astro.request.headers, asResponse: true }),
+    );
+    if (r.ok) notice = t.auth.codeSent;
+    else error = errorText(lang, r.code);
+  } else {
+    const otp = String(f.get('code') ?? '').replace(/\D/g, '').slice(0, 6);
+    const r = await callAuth((a) => a.api.verifyEmailOTP({ body: { email: user.email, otp }, headers: Astro.request.headers, asResponse: true }));
+    if (r.ok) return redirectWith(after, r.cookies, { kind: 'ok', text: t.auth.emailConfirmed });
+    error = r.code === 'INVALID_OTP' || r.code === 'OTP_EXPIRED' || r.code === 'TOO_MANY_ATTEMPTS' ? errorText(lang, r.code) : errorText(lang, r.code);
+  }
+}
+// development only: no email leaves the machine, so show the code that would have been sent
+let devCode = '';
+if (devOutbox()) {
+  const last = await one<{ subject: string }>(
+    "SELECT subject FROM dev_outbox WHERE channel = 'mail' AND recipient = ? ORDER BY created_at DESC LIMIT 1",
+    user.email,
+  );
+  devCode = last?.subject.match(/^\d{6}/)?.[0] ?? '';
+}
+const action = href(lang, '/konfirmo') + (pas !== href(lang, '/') ? `?pas=${encodeURIComponent(pas)}` : '');
+---
+<AuthShell title={t.auth.confirmTitle} lead={t.auth.confirmLead(user.email)}>
+  {devCode && <p class="notice" role="status">{t.auth.devCode(devCode)}</p>}
+  {notice && <p class="notice notice--ok" role="status">{notice}</p>}
+  <form method="post" action={action}>
+    <input type="hidden" name="op" value="verify" />
+    <div class="field">
+      <label for="code">{t.auth.confirmCode}</label>
+      <input class="input code" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required aria-invalid={error ? 'true' : undefined} aria-describedby={error ? 'code-err' : undefined} />
+    </div>
+    {error && <p class="form-error" id="code-err" role="alert">{error}</p>}
+    <button class="btn" type="submit">{t.auth.confirmAction}<Icon name="arrowRight" /></button>
+  </form>
+  <form method="post" action={action}>
+    <input type="hidden" name="op" value="resend" />
+    <button class="btn btn--quiet btn--sm" type="submit">{t.auth.resendCode}</button>
+  </form>
+</AuthShell>
+
+<style>
+  .code {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    letter-spacing: 0.3em;
+    max-width: 14rem;
+  }
+</style>

@@ -1,0 +1,94 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { t as tr, href } from '../i18n';
+import { all } from '../lib/db';
+import { relative, tiranaDayStart } from '../lib/time';
+import { postPath, eventPath, townHallPath } from '../lib/paths';
+
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+if (!user) return Astro.redirect(href(lang, '/hyr') + `?pas=${encodeURIComponent(href(lang, path))}`, 303);
+const rows = await all<{
+  id: string;
+  type: string;
+  actor_name: string | null;
+  target_type: string | null;
+  target_id: string | null;
+  title: string;
+  extra: string;
+  read_at: number | null;
+  created_at: number;
+  post_kind: string | null;
+  post_title: string | null;
+  ev_title: string | null;
+  th_title: string | null;
+}>(
+  `SELECT n.id, n.type, u.name AS actor_name, n.target_type, n.target_id, n.title, n.extra, n.read_at, n.created_at,
+     p.kind AS post_kind, p.title AS post_title, e.title AS ev_title, th.title AS th_title
+   FROM notification n
+   LEFT JOIN "user" u ON u.id = n.actor_id
+   LEFT JOIN post p ON n.target_type = 'post' AND p.id = n.target_id
+   LEFT JOIN event e ON n.target_type = 'event' AND e.id = n.target_id
+   LEFT JOIN town_hall th ON n.target_type = 'town_hall' AND th.id = n.target_id
+   WHERE n.user_id = ? ORDER BY n.created_at DESC LIMIT 60`,
+  user.id,
+);
+const link = (r: (typeof rows)[number]) => {
+  if (r.target_type === 'post' && r.post_kind && r.target_id) return href(lang, postPath({ kind: r.post_kind, id: r.target_id, title: r.post_title ?? '' }));
+  if (r.target_type === 'event' && r.target_id) return href(lang, eventPath({ id: r.target_id, title: r.ev_title ?? '' }));
+  if (r.target_type === 'town_hall' && r.target_id) return href(lang, townHallPath({ id: r.target_id, title: r.th_title ?? '' }));
+  if (r.target_type === 'user') return href(lang, '/ekipi/njerez');
+  if (r.type === 'team_report') return href(lang, '/ekipi');
+  return null;
+};
+const text = (r: (typeof rows)[number]) => {
+  const f = t.notifications.types[r.type];
+  const title = r.title || r.post_title || r.ev_title || r.th_title || '';
+  return f ? f(r.actor_name ?? t.site.name, title, r.extra) : title;
+};
+const today = tiranaDayStart(Date.now());
+const unread = rows.some((r) => !r.read_at);
+---
+<Layout title={t.notifications.title} index={false}>
+  <section class="wrap nt" data-region="notifications">
+    <header class="nt__head">
+      <h1 class="poster">{t.notifications.title}</h1>
+      <p class="lead">{t.notifications.lead}</p>
+      {unread && (
+        <form method="post" action="/do/notifications-read" data-enhance>
+          <input type="hidden" name="back" value={href(lang, '/njoftime')} />
+          <button class="btn btn--line btn--sm" type="submit">{t.notifications.markAll}</button>
+        </form>
+      )}
+    </header>
+    {rows.length === 0 ? (
+      <p class="h3 nt__empty">{t.notifications.empty}</p>
+    ) : (
+      <ol class="nt__list" role="list">
+        {rows.map((r, i) => (
+          <>
+            {(i === 0 || (rows[i - 1].created_at >= today) !== (r.created_at >= today)) && (
+              <li class="nt__day meta">{r.created_at >= today ? (lang === 'sq' ? 'Sot' : 'Today') : (lang === 'sq' ? 'Më herët' : 'Earlier')}</li>
+            )}
+            <li class:list={['nt__item', { 'is-unread': !r.read_at }]}>
+              {link(r) ? <a href={link(r)!}>{text(r)}</a> : <span>{text(r)}</span>}
+              <span class="meta">{relative(r.created_at, lang)}</span>
+            </li>
+          </>
+        ))}
+      </ol>
+    )}
+  </section>
+</Layout>
+
+<style>
+  .nt { display: grid; gap: var(--space-5); padding-top: var(--space-7); max-width: 52rem; }
+  .nt__head { display: grid; gap: var(--space-4); justify-items: start; }
+  .nt__empty { padding-block: var(--space-7); }
+  .nt__list { list-style: none; padding: 0; display: grid; }
+  .nt__day { padding-top: var(--space-4); font-weight: 700; }
+  .nt__item { display: grid; gap: 2px; padding: var(--space-4) var(--space-4); border-bottom: 2px solid var(--line-soft); }
+  .nt__item.is-unread { background: color-mix(in srgb, var(--paint) 22%, var(--ground)); border-left: 0; }
+  .nt__item a { font-weight: 700; text-decoration: none; }
+  @media (hover: hover) and (pointer: fine) { .nt__item a:hover { text-decoration: underline; text-decoration-color: var(--paint); } }
+</style>

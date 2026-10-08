@@ -1,0 +1,445 @@
+---
+import Layout from '../layouts/Layout.astro';
+import LiveSentence from '../components/LiveSentence.astro';
+import FeedRow from '../components/FeedRow.astro';
+import PollBlock from '../components/PollBlock.astro';
+import EventRow from '../components/EventRow.astro';
+import SponsorCard from '../components/SponsorCard.astro';
+import Icon from '../components/Icon.astro';
+import { t as tr, href } from '../i18n';
+import { feedPosts, newsPosts, listPolls, listEvents, listSponsors, weekStats, proposalGoal } from '../lib/queries';
+import { buildSentence } from '../lib/sentence';
+import { relative } from '../lib/time';
+import { postPath } from '../lib/paths';
+import { env } from 'cloudflare:workers';
+
+const { lang, user } = Astro.locals;
+const t = tr(lang);
+const viewer = user?.id ?? null;
+
+const [stats, latest, polls, events, news, sponsors, goal] = await Promise.all([
+  weekStats(),
+  feedPosts({ type: 'all', viewer, limit: 5 }),
+  listPolls({ viewer, open: true, limit: 1 }),
+  listEvents({ viewer, when: 'upcoming', limit: 1 }),
+  newsPosts({ viewer, limit: 3 }),
+  listSponsors(),
+  proposalGoal(),
+]);
+
+const tokens = buildSentence(stats, lang, {
+  forum: href(lang, '/forumi'),
+  place: stats.topPlace ? href(lang, `/forumi?vendi=${stats.topPlace.slug}`) : undefined,
+});
+const site = env.SITE_URL.replace(/\/$/, '');
+const jsonld = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: t.site.name,
+  url: site + href(lang, '/'),
+  inLanguage: lang,
+  description: t.site.description,
+};
+---
+<Layout description={t.site.description} jsonld={jsonld} page="home">
+  <!-- 1. the street: what this is and the two things you can do, on asphalt, ending at a zebra crossing -->
+  <section class="hero" aria-labelledby="h-title">
+    <div class="wrap hero__in">
+      <h1 class="hero__title" id="h-title">{t.home.title} <span class="hero__sign"><span>5</span></span></h1>
+      <p class="hero__where">{t.home.where}</p>
+      <p class="hero__lead">{t.home.lead}</p>
+      <div class="hero__cta">
+        <a class="btn hero__btn" href={href(lang, '/shkruaj')}><Icon name="pencil" />{t.home.write}</a>
+        <a class="btn btn--line hero__btn" href={href(lang, '/propozo')}><Icon name="lightbulb" />{t.home.propose}</a>
+      </div>
+      {!user && (
+        <p class="hero__free">{t.home.readFree} <a href={href(lang, '/regjistrohu')}>{t.home.signUp}</a>.</p>
+      )}
+    </div>
+    <div class="crossing" aria-hidden="true"></div>
+  </section>
+
+  <!-- 2. how it works: three stops along a lane line that paints itself as you scroll -->
+  <section class="section wrap how" aria-labelledby="h-how">
+    <h2 class="h2" id="h-how">{t.home.how}</h2>
+    <ol class="road" role="list">
+      {t.home.steps.map((s, i) => (
+        <li class="stop" style={`--i:${i}`}>
+          <span class="stop__n" aria-hidden="true">{i + 1}</span>
+          <div class="stop__body">
+            <h3 class="h3">{s.title}</h3>
+            <p class="stop__text">{s.text}</p>
+            {i === 2 && stats.delivered > 0 && (
+              <a class="signlink" href={href(lang, '/forumi?lloji=realizuara')}>{t.home.deliveredSoFar(stats.delivered)}<Icon name="arrowRight" /></a>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+  </section>
+
+  <!-- 3. the week in numbers: the live sentence -->
+  <section class="section wrap week" aria-labelledby="h-week">
+    <h2 class="h2" id="h-week">{t.home.week}</h2>
+    <LiveSentence tokens={tokens} />
+  </section>
+
+  <!-- 4. the latest topics and proposals, one list -->
+  <section class="section wrap latest" aria-labelledby="h-latest">
+    <div class="sechead">
+      <h2 class="h2" id="h-latest">{t.home.latest}</h2>
+      <a class="signlink" href={href(lang, '/forumi')}>{t.home.seeForum}<Icon name="arrowRight" /></a>
+    </div>
+    <div class="rows" data-reveal>
+      {latest.map((p) => <FeedRow post={p} goal={goal} />)}
+    </div>
+  </section>
+
+  <!-- 5. vote now, meet next -->
+  {(polls[0] || events[0]) && (
+    <section class="section wrap duo">
+      {polls[0] && (
+        <div class="duo__poll">
+          <h2 class="h2">{t.home.poll}</h2>
+          <PollBlock poll={polls[0]} />
+        </div>
+      )}
+      {events[0] && (
+        <div class="duo__event">
+          <h2 class="h2">{t.home.nextEvent}</h2>
+          <EventRow event={events[0]} size="lg" />
+          <a class="signlink" href={href(lang, '/ngjarje')}>{t.home.allEvents}<Icon name="arrowRight" /></a>
+        </div>
+      )}
+    </section>
+  )}
+
+  <!-- 6. what the team decided -->
+  {news.length > 0 && (
+    <section class="section wrap team" aria-labelledby="h-team">
+      <div class="sechead">
+        <h2 class="h2" id="h-team">{t.home.decisions}</h2>
+        <a class="signlink" href={href(lang, '/vendime')}>{t.home.allDecisions}<Icon name="arrowRight" /></a>
+      </div>
+      <ol class="index" role="list">
+        {news.map((n) => (
+          <li>
+            <a href={href(lang, postPath(n))}>
+              <span class="index__cat">{t.decisions.categories[n.category ?? 'news']}</span>
+              <span class="index__title">{n.title}</span>
+              <span class="index__when meta">{relative(n.created_at, lang)}</span>
+            </a>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )}
+
+  {sponsors.length > 0 && (
+    <section class="section wrap biz" aria-labelledby="h-biz">
+      <div class="sechead">
+        <h2 class="h3" id="h-biz">{t.businesses.title}</h2>
+        <a class="signlink" href={href(lang, '/bizneset')}>{t.businesses.all}<Icon name="arrowRight" /></a>
+      </div>
+      <div class="biz__grid">
+        {sponsors.slice(0, 2).map((s) => <SponsorCard sponsor={s} />)}
+      </div>
+    </section>
+  )}
+</Layout>
+
+<style>
+  /* ---------- the street: asphalt in both themes, pavement-white type ---------- */
+  .hero {
+    --on-asphalt-2: color-mix(in srgb, var(--pavement) 78%, var(--asphalt));
+    background: var(--asphalt);
+    color: var(--pavement);
+    padding-bottom: clamp(1.25rem, 0.8rem + 1.5vw, 2.25rem);
+  }
+  .hero__in {
+    padding-block: clamp(2.5rem, 1rem + 5vw, 6.5rem) clamp(2.5rem, 1.5rem + 3vw, 4.5rem);
+  }
+  .hero__title {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: clamp(3.1rem, 0.6rem + 10.6vw, 12.5rem);
+    line-height: 0.88;
+    text-transform: uppercase;
+    letter-spacing: -0.005em;
+    max-width: 12ch;
+    color: var(--pavement);
+  }
+  /* the unit number is a round road sign set into the title */
+  .hero__sign {
+    display: inline-grid;
+    place-items: center;
+    width: 0.9em;
+    height: 0.9em;
+    margin-left: 0.04em;
+    vertical-align: -0.06em;
+    border-radius: 99px;
+    background: var(--paint);
+    color: var(--paint-ink);
+  }
+  .hero__sign > span {
+    font-size: 0.72em;
+    line-height: 1;
+    transform: translateY(0.03em);
+  }
+  .hero__where {
+    margin-top: var(--space-4);
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step-1);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--paint);
+  }
+  .hero__lead {
+    margin-top: var(--space-5);
+    font-size: var(--step-1);
+    line-height: 1.45;
+    max-width: 44ch;
+    color: var(--pavement);
+  }
+  .hero__cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+  }
+  .hero__btn {
+    min-height: 56px;
+    font-size: 1.45rem;
+    white-space: normal;
+  }
+  .hero .btn--line {
+    --b-fg: var(--pavement);
+    border-color: var(--pavement);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .hero .btn:not(.btn--line):hover {
+      --b-bg: var(--pavement);
+      --b-fg: var(--asphalt);
+    }
+  }
+  @media (max-width: 640px) {
+    .hero__btn {
+      flex: 1 1 100%;
+    }
+  }
+  .hero__free {
+    margin-top: var(--space-4);
+    color: var(--on-asphalt-2);
+  }
+  .hero__free a {
+    font-weight: 700;
+    color: var(--pavement);
+    text-decoration-color: var(--paint);
+    text-decoration-thickness: 0.18em;
+    text-underline-offset: 0.12em;
+  }
+  /* the zebra crossing at the foot of the street, laid left to right once on arrival */
+  .crossing {
+    --bar: clamp(1.6rem, 0.9rem + 2.6vw, 3.6rem);
+    height: clamp(3.25rem, 2rem + 4.5vw, 7rem);
+    background: repeating-linear-gradient(90deg, var(--paint) 0 var(--bar), transparent var(--bar) calc(var(--bar) * 1.9));
+    background-position: var(--gutter) 0;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    :global(html:not([data-motion='off'])) .crossing {
+      animation: lay 900ms var(--ease-out) 150ms both;
+    }
+  }
+  @keyframes lay {
+    from {
+      clip-path: inset(0 100% 0 0);
+    }
+    to {
+      clip-path: inset(0 0 0 0);
+    }
+  }
+
+  /* ---------- how it works: stops along a painted lane ---------- */
+  .road {
+    --plate: 3.5rem;
+    --lane: 6px;
+    --gap: var(--space-7);
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: var(--gap);
+    margin-top: var(--space-6);
+  }
+  .stop {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--plate) minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+    view-timeline: --stop block;
+  }
+  /* the lane runs from this stop's sign to the next one */
+  .stop:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: calc(var(--plate) / 2 - var(--lane) / 2);
+    top: calc(var(--plate) / 2);
+    bottom: calc(-1 * var(--gap) - var(--plate) / 2);
+    width: var(--lane);
+    background: repeating-linear-gradient(180deg, var(--paint) 0 2.25rem, transparent 2.25rem 3.5rem);
+    transform-origin: 50% 0;
+  }
+  .stop__n {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: var(--plate);
+    height: var(--plate);
+    border-radius: 99px;
+    /* asphalt sign in both themes; the ink ring only shows on the dark theme */
+    background: var(--asphalt);
+    color: var(--paint);
+    box-shadow:
+      0 0 0 2.5px var(--ink),
+      0 0 0 8px var(--ground);
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: 1.9rem;
+    line-height: 1;
+  }
+  .stop__body {
+    display: grid;
+    gap: var(--space-3);
+    justify-items: start;
+    padding-top: 0.55rem;
+  }
+  .stop__text {
+    color: var(--ink-2);
+    max-width: 38ch;
+  }
+  @media (min-width: 900px) {
+    .road {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      --gap: var(--space-6);
+    }
+    .stop {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .stop:not(:last-child)::before {
+      left: calc(var(--plate) / 2);
+      right: calc(-1 * var(--gap));
+      top: calc(var(--plate) / 2 - var(--lane) / 2);
+      bottom: auto;
+      width: auto;
+      height: var(--lane);
+      background: var(--dash-paint);
+      transform-origin: 0 50%;
+    }
+    .stop__body {
+      padding-top: 0;
+    }
+  }
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      :global(html:not([data-motion='off'])) .stop::before {
+        animation: lane-y linear both;
+        animation-timeline: --stop;
+        animation-range: cover 12% cover 42%;
+      }
+    }
+    @media (prefers-reduced-motion: no-preference) and (min-width: 900px) {
+      :global(html:not([data-motion='off'])) .stop::before {
+        animation-name: lane-x;
+        /* side by side they share one scroll position, so each segment starts a little later */
+        animation-range: cover calc(10% + var(--i) * 8%) cover calc(36% + var(--i) * 8%);
+      }
+    }
+  }
+  @keyframes lane-y {
+    from {
+      transform: scaleY(0);
+    }
+  }
+  @keyframes lane-x {
+    from {
+      transform: scaleX(0);
+    }
+  }
+
+  .week .h2 {
+    margin-bottom: var(--space-5);
+  }
+
+  .sechead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+  .latest .rows {
+    max-width: 62rem;
+  }
+  .duo {
+    display: grid;
+    gap: var(--space-9);
+  }
+  .duo .h2 {
+    margin-bottom: var(--space-5);
+  }
+  @media (min-width: 1024px) {
+    .duo {
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+      gap: var(--space-8);
+      align-items: start;
+    }
+  }
+  .index {
+    list-style: none;
+    padding: 0;
+    border-top: 2.5px solid var(--ink);
+  }
+  .index li {
+    border-bottom: 2px solid var(--line-soft);
+  }
+  .index a {
+    display: grid;
+    grid-template-columns: 10rem 1fr auto;
+    gap: var(--space-4);
+    align-items: baseline;
+    padding-block: var(--space-4);
+    text-decoration: none;
+  }
+  .index__cat {
+    font-weight: 700;
+    color: var(--ink-2);
+    font-size: var(--step--1);
+  }
+  .index__title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step-2);
+    line-height: 1;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .index a:hover .index__title {
+      text-decoration: underline;
+      text-decoration-color: var(--paint);
+      text-decoration-thickness: 0.14em;
+    }
+  }
+  @media (max-width: 640px) {
+    .index a {
+      grid-template-columns: 1fr;
+      gap: var(--space-1);
+    }
+  }
+  .biz__grid {
+    display: grid;
+    gap: var(--space-4);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  }
+</style>

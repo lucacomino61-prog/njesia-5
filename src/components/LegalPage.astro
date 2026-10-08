@@ -1,0 +1,32 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { terms, privacy, UPDATED } from '../lib/legal';
+import { dateLabel } from '../lib/time';
+import { t as tr } from '../i18n';
+
+interface Props {
+  which: 'terms' | 'privacy';
+}
+const { which } = Astro.props;
+const { lang } = Astro.locals;
+const t = tr(lang);
+const sections = (which === 'terms' ? terms : privacy)[lang];
+const title = which === 'terms' ? t.nav.terms : t.nav.privacy;
+---
+<Layout title={title} description={sections[0].p[0].slice(0, 155)}>
+  <article class="wrap lg">
+    <h1 class="poster">{title}</h1>
+    <p class="meta">{lang === 'sq' ? 'Përditësuar më ' : 'Last updated '}{dateLabel(UPDATED, lang, { year: true }).replace(/^[^,]*, |^\S+ /, '')}</p>
+    {sections.map((s) => (
+      <section id={s.id}>
+        <h2 class="h3">{s.h}</h2>
+        {s.p.map((p) => <p>{p}</p>)}
+      </section>
+    ))}
+  </article>
+</Layout>
+<style>
+  .lg { display: grid; gap: var(--space-6); padding-top: var(--space-7); }
+  .lg section { display: grid; gap: var(--space-3); max-width: var(--measure); }
+  .lg .poster { font-size: clamp(3rem, 1rem + 8vw, 9rem); }
+</style>

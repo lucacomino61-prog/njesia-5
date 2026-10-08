@@ -1,0 +1,340 @@
+---
+// Topic, proposal or team post. Routes: /tema/[id], /propozime/[id], /vendime/[id].
+import Layout from '../layouts/Layout.astro';
+import Icon from './Icon.astro';
+import SupportLane from './SupportLane.astro';
+import Comments from './Comments.astro';
+import ReportDialog from './ReportDialog.astro';
+import NotFound from './NotFound.astro';
+import { t as tr, href } from '../i18n';
+import { listComments, listUpdates, proposalGoal, type FeedPost } from '../lib/queries';
+import { relative, hoursBetween, dateLabel } from '../lib/time';
+import { postPath } from '../lib/paths';
+import { canWrite, isTeam } from '../lib/auth';
+import { env } from 'cloudflare:workers';
+
+interface Props {
+  kind: 'topic' | 'proposal' | 'news';
+  post: FeedPost | null;
+}
+const { kind, post: p } = Astro.props;
+const { lang, user } = Astro.locals;
+const t = tr(lang);
+const found = Boolean(p && p.kind === kind);
+const id = p?.id ?? '';
+const visible = found && p!.state === 'visible';
+const team = isTeam(user);
+const [comments, updates, goal] = found
+  ? await Promise.all([listComments(id), kind === 'proposal' ? listUpdates(id) : Promise.resolve([]), proposalGoal()])
+  : [[], [], 50];
+const g = (p?.goal ?? goal) as number;
+const writer = canWrite(user);
+const path = found ? href(lang, postPath(p)) : '';
+const site = env.SITE_URL.replace(/\/$/, '');
+const replied = found && p.team_reply_at ? hoursBetween(p.created_at, p.team_reply_at) : null;
+const isTeamAuthor = found && (p.author_role === 'admin' || p.author_role === 'superadmin');
+const steps = ['submitted', 'under_review', 'planned', 'completed'];
+const stepIndex = found && p.status ? steps.indexOf(p.status) : -1;
+const supportOpen = found && kind === 'proposal' && ['submitted', 'under_review', 'planned'].includes(p.status ?? '');
+const backHref = kind === 'news' ? href(lang, '/vendime') : href(lang, kind === 'proposal' ? '/forumi?lloji=propozime' : '/forumi');
+const backLabel = kind === 'news' ? t.post.backDecisions : t.post.back;
+const jsonld = found && visible
+  ? {
+      '@context': 'https://schema.org',
+      '@type': kind === 'news' ? 'NewsArticle' : 'DiscussionForumPosting',
+      headline: p.title,
+      text: p.body.slice(0, 500),
+      datePublished: new Date(p.created_at).toISOString(),
+      author: { '@type': kind === 'news' ? 'Organization' : 'Person', name: p.author_name },
+      url: site + path,
+      interactionStatistic: [
+        { '@type': 'InteractionCounter', interactionType: 'https://schema.org/CommentAction', userInteractionCount: p.comments },
+      ],
+    }
+  : undefined;
+---
+{!found ? (
+  <NotFound />
+) : (
+  <Layout title={p.title} description={p.body.slice(0, 155)} ogType="article" jsonld={jsonld} index={visible}>
+    <article class="wrap post">
+      <a class="signlink back" href={backHref}><Icon name="arrowLeft" />{backLabel}</a>
+
+      {!visible ? (
+        <div class="gone">
+          <p class="h3">{p.state === 'deleted' ? t.post.gone.deleted : p.state === 'removed' ? t.post.gone.removed : t.post.gone.review}</p>
+          {team && (
+            <form method="post" action="/do/moderate">
+              <input type="hidden" name="type" value="post" />
+              <input type="hidden" name="id" value={p.id} />
+              <input type="hidden" name="decision" value="restore" />
+              <input type="hidden" name="back" value={path} />
+              <button class="btn btn--line" type="submit">{lang === 'sq' ? 'Rikthe' : 'Restore'}</button>
+            </form>
+          )}
+        </div>
+      ) : (
+        <>
+          <header class="post__head">
+            <div class="post__meta meta">
+              {kind === 'proposal' && p.status && <span class:list={['tag', p.status === 'completed' ? 'tag--paint' : 'tag--ink']}>{t.proposal.status[p.status]}</span>}
+              {kind === 'news' && <span class="tag tag--ink">{t.decisions.categories[p.category ?? 'news']}</span>}
+              {p.place_slug && <a class="post__place" href={href(lang, `/forumi?vendi=${p.place_slug}`)}><Icon name="mapPin" />{p.place_name}</a>}
+              <time datetime={new Date(p.created_at).toISOString()}>{dateLabel(p.created_at, lang)} · {relative(p.created_at, lang)}</time>
+            </div>
+            <h1 class="post__title">{p.title}</h1>
+            <p class="post__by">
+              <span class:list={['plate', { 'plate--ink': isTeamAuthor }]} aria-hidden="true">{p.author_name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</span>
+              <span>{kind === 'proposal' ? t.proposal.by(p.author_name) : p.author_name}{isTeamAuthor && kind !== 'news' ? ` · ${t.post.team}` : ''}</span>
+            </p>
+            {kind !== 'news' && !isTeamAuthor && (
+              <p class:list={['post__clock', { 'is-ok': replied !== null }]}>
+                <Icon name={replied !== null ? 'check' : 'clock'} />
+                {replied !== null ? t.post.teamReplied(replied) : t.post.awaiting}
+              </p>
+            )}
+          </header>
+
+          <div class="post__body">
+            {p.body.split(/\n{2,}/).map((para) => <p>{para}</p>)}
+            {p.location_label && <p class="post__loc"><Icon name="mapPin" />{p.location_label}</p>}
+          </div>
+
+          {kind === 'proposal' && (
+            <section class="pp" data-region="support" data-count-scope aria-label={t.proposal.journey}>
+              {p.status !== 'rejected' && <SupportLane supports={p.supports} goal={g} size="lg" />}
+              <div class="pp__act">
+                {supportOpen && (writer ? (
+                  <form method="post" action="/do/support" data-enhance>
+                    <input type="hidden" name="post" value={p.id} />
+                    <input type="hidden" name="back" value={path} />
+                    <button class="btn" type="submit" aria-pressed={p.mine_supported ? 'true' : 'false'}>
+                      <Icon name={p.mine_supported ? 'check' : 'arrowUp'} />{p.mine_supported ? t.proposal.supported : t.proposal.support}
+                    </button>
+                  </form>
+                ) : (
+                  <a class="btn" href={href(lang, user ? '/ne-pritje' : '/hyr') + `?pas=${encodeURIComponent(path)}`}><Icon name="arrowUp" />{t.proposal.support}</a>
+                ))}
+                {!supportOpen && <p class="meta">{t.proposal.closedSupport}</p>}
+              </div>
+              <h2 class="h3">{t.proposal.journey}</h2>
+              <ol class="journey" role="list">
+                {steps.map((s, i) => (
+                  <li class:list={{ 'is-done': stepIndex >= i && p.status !== 'rejected', 'is-now': p.status === s }} aria-current={p.status === s ? 'step' : undefined}>
+                    <span>{t.proposal.status[s]}</span>
+                  </li>
+                ))}
+              </ol>
+              {p.status === 'rejected' && <p class="tag tag--ink">{t.proposal.status.rejected}</p>}
+              <h2 class="h3">{t.proposal.history}</h2>
+              {updates.filter((u) => u.note).length === 0 ? (
+                <p class="meta">{t.proposal.noUpdates}</p>
+              ) : (
+                <ol class="history" role="list">
+                  {updates.filter((u) => u.note).reverse().map((u) => (
+                    <li>
+                      <p class="meta"><span class="tag">{t.proposal.status[u.status]}</span> {u.author_name} · {relative(u.created_at, lang)}</p>
+                      <p>{u.note}</p>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {team && (
+                <details class="staff">
+                  <summary class="btn btn--line btn--sm">{lang === 'sq' ? 'Përditëso statusin' : 'Update status'}</summary>
+                  <form method="post" action="/do/status" data-enhance class="staff__form">
+                    <input type="hidden" name="post" value={p.id} />
+                    <input type="hidden" name="back" value={path} />
+                    <div class="field">
+                      <label for="st">{lang === 'sq' ? 'Statusi' : 'Status'}</label>
+                      <select class="select" id="st" name="status">
+                        {['submitted', 'under_review', 'planned', 'completed', 'rejected'].map((s) => <option value={s} selected={p.status === s}>{t.proposal.status[s]}</option>)}
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label for="sn">{lang === 'sq' ? 'Shpjegim për banorët' : 'Explanation for residents'}</label>
+                      <textarea class="textarea" id="sn" name="note" required minlength="5"></textarea>
+                    </div>
+                    <p class="form-error" role="alert"></p>
+                    <button class="btn btn--sm" type="submit">{lang === 'sq' ? 'Publiko përditësimin' : 'Publish update'}</button>
+                  </form>
+                </details>
+              )}
+            </section>
+          )}
+
+          <div class="post__acts" data-region="acts" data-count-scope>
+            {kind === 'topic' && (writer ? (
+              <form method="post" action="/do/upvote" data-enhance data-optimistic>
+                <input type="hidden" name="post" value={p.id} />
+                <input type="hidden" name="back" value={path} />
+                <button class="btn btn--line" type="submit" aria-pressed={p.mine_upvoted ? 'true' : 'false'}>
+                  <Icon name="arrowUp" /><span data-count={p.upvotes}>{p.upvotes}</span><span class="sr-only"> {t.post.upvote}</span>
+                </button>
+              </form>
+            ) : (
+              <a class="btn btn--line" href={href(lang, user ? '/ne-pritje' : '/hyr') + `?pas=${encodeURIComponent(path)}`}><Icon name="arrowUp" />{p.upvotes}<span class="sr-only"> {t.post.upvote}</span></a>
+            ))}
+            <button class="btn btn--line" type="button" data-share={site + path} data-title={p.title} data-copied={t.post.copied}><Icon name="share" />{t.post.share}</button>
+            {user && user.id !== p.author_id && (
+              <a class="btn btn--quiet" href={href(lang, `/raporto?lloji=post&id=${p.id}&pas=${encodeURIComponent(path)}`)} data-open="report" data-fill={JSON.stringify({ type: 'post', id: p.id })}><Icon name="flag" />{t.post.report}</a>
+            )}
+            {user && (user.id === p.author_id || team) && (
+              <form method="post" action="/do/post-delete" class="post__del">
+                <input type="hidden" name="post" value={p.id} />
+                <input type="hidden" name="back" value={path} />
+                <button class="btn btn--quiet" type="submit">{t.comments.delete}</button>
+              </form>
+            )}
+          </div>
+
+          <Comments postId={p.id} comments={comments} />
+        </>
+      )}
+    </article>
+    {user && <ReportDialog />}
+  </Layout>
+)}
+
+<style>
+  .post {
+    padding-top: var(--space-6);
+    display: grid;
+    gap: var(--space-6);
+  }
+  .back {
+    justify-self: start;
+  }
+  .post__head {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .post__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+  }
+  .post__place {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+    font-weight: 700;
+    color: var(--ink-2);
+  }
+  .post__title {
+    font-size: clamp(2.6rem, 1rem + 6vw, 7rem);
+    text-transform: uppercase;
+    font-weight: 900;
+    line-height: 0.92;
+    max-width: 18ch;
+  }
+  .post__by {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-weight: 700;
+  }
+  .post__clock {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    justify-self: start;
+    padding: 0.3em 0.7em;
+    border: 2px solid var(--ink);
+    font-weight: 700;
+  }
+  .post__clock.is-ok {
+    background: var(--paint);
+    color: var(--paint-ink);
+    border-color: var(--paint);
+  }
+  .post__body {
+    display: grid;
+    gap: var(--space-4);
+    font-size: var(--step-1);
+    max-width: var(--measure);
+    line-height: 1.55;
+  }
+  .post__loc {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    font-weight: 700;
+    font-size: var(--step-0);
+  }
+  .pp {
+    display: grid;
+    gap: var(--space-5);
+    max-width: 52rem;
+    padding: var(--space-6);
+    border: 2.5px solid var(--ink);
+  }
+  .pp__act {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  .journey {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-2);
+  }
+  .journey li {
+    display: grid;
+    gap: var(--space-2);
+    font-weight: 700;
+    font-size: var(--step--1);
+    color: var(--ink-3);
+  }
+  .journey li::before {
+    content: '';
+    height: 10px;
+    background: var(--line-soft);
+  }
+  .journey li.is-done {
+    color: var(--ink);
+  }
+  .journey li.is-done::before {
+    background: var(--paint);
+  }
+  .journey li.is-now::before {
+    background: var(--ink);
+  }
+  .history {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: var(--space-4);
+  }
+  .history li {
+    display: grid;
+    gap: var(--space-1);
+    padding-left: var(--space-4);
+    border-left: 4px solid var(--paint);
+  }
+  .staff__form {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+  }
+  .staff summary {
+    list-style: none;
+  }
+  .post__acts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .post__del {
+    margin-left: auto;
+  }
+  .gone {
+    display: grid;
+    gap: var(--space-4);
+    padding-block: var(--space-8);
+  }
+</style>

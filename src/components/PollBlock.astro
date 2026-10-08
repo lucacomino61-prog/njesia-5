@@ -1,0 +1,157 @@
+---
+// A poll you can answer in place. Results show after voting (or once closed); the vote can be
+// changed until the poll closes. Who can see your choice is said before you vote.
+import Icon from './Icon.astro';
+import { t as tr, href } from '../i18n';
+import { relative } from '../lib/time';
+import { pollIsOpen, type PollRow } from '../lib/queries';
+import { canWrite } from '../lib/auth';
+
+interface Props {
+  poll: PollRow;
+  heading?: string;
+  region?: string;
+}
+const { poll, heading, region = `poll-${poll.id}` } = Astro.props;
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+const open = pollIsOpen(poll);
+const showResults = !open || Boolean(poll.mine);
+const writer = canWrite(user);
+const named = poll.named_since !== null && poll.named_since <= Date.now();
+const back = href(lang, path) + Astro.url.search;
+---
+<section class="poll" data-region={region} aria-labelledby={`${region}-q`}>
+  <div class="poll__head meta">
+    <span class="tag tag--ink"><Icon name="poll" />{t.poll.label}</span>
+    <span>{open ? (poll.closes_at ? t.poll.closesIn(relative(poll.closes_at, lang)) : t.poll.noEnd) : t.poll.closedAgo(relative(poll.closed_at ?? poll.closes_at ?? Date.now(), lang))}</span>
+    {poll.place_name && <span><Icon name="mapPin" />{poll.place_name}</span>}
+  </div>
+  {heading && <p class="poll__kicker">{heading}</p>}
+  <h3 class="poll__q" id={`${region}-q`}>{poll.question}</h3>
+
+  <form class="poll__form" method="post" action="/do/vote" data-enhance>
+    <input type="hidden" name="poll" value={poll.id} />
+    <input type="hidden" name="back" value={back} />
+    <ul class="poll__opts" role="list">
+      {poll.options.map((o) => {
+        const pct = poll.votes ? Math.round((o.votes / poll.votes) * 100) : 0;
+        const mine = poll.mine === o.id;
+        return (
+          <li style={`--pct:${showResults ? pct : 0}%`}>
+            {open && writer ? (
+              <button class="opt" type="submit" name="option" value={o.id} aria-pressed={mine ? 'true' : 'false'}>
+                <span class="opt__bar" aria-hidden="true"></span>
+                <span class="opt__label">{o.label}</span>
+                {showResults && <span class="opt__pct num">{pct}%</span>}
+                {mine && <Icon name="check" label={t.poll.yourVote} />}
+              </button>
+            ) : open ? (
+              <a class="opt" href={href(lang, user ? '/ne-pritje' : '/hyr') + `?pas=${encodeURIComponent(back)}`}>
+                <span class="opt__bar" aria-hidden="true"></span>
+                <span class="opt__label">{o.label}</span>
+              </a>
+            ) : (
+              <div class="opt opt--static">
+                <span class="opt__bar" aria-hidden="true"></span>
+                <span class="opt__label">{o.label}</span>
+                <span class="opt__pct num">{pct}%</span>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+    <p class="form-error" role="alert"></p>
+  </form>
+  <p class="poll__foot meta">
+    <strong class="num">{t.poll.votes(poll.votes)}</strong>
+    <span>{open && poll.mine ? t.poll.change : ''}</span>
+    <span>{named ? t.poll.teamSees : t.poll.anonymous}</span>
+  </p>
+</section>
+
+<style>
+  .poll {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .poll__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+  }
+  .poll__kicker {
+    font-weight: 700;
+  }
+  .poll__q {
+    font-size: var(--step-3);
+    max-width: 22ch;
+  }
+  .poll__opts {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: var(--space-2);
+  }
+  .opt {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    min-height: 56px;
+    padding: 0.7em 1em;
+    border: 2.5px solid var(--ink);
+    background: transparent;
+    text-align: left;
+    font-weight: 700;
+    font-size: var(--step-0);
+    text-decoration: none;
+    overflow: hidden;
+    isolation: isolate;
+    transition: transform 140ms var(--ease-out);
+  }
+  button.opt:active {
+    transform: scale(0.985);
+  }
+  .opt__bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--pct);
+    background: var(--paint);
+    z-index: -1;
+    transition: width 500ms var(--ease-paint);
+  }
+  .opt[aria-pressed='true'] {
+    background: var(--ink);
+    color: var(--ground);
+  }
+  .opt[aria-pressed='true'] .opt__bar {
+    background: var(--paint);
+    opacity: 0.25;
+  }
+  .opt__label {
+    flex: 1;
+  }
+  .opt__pct {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.4rem;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    button.opt:not([aria-pressed='true']):hover,
+    a.opt:hover {
+      box-shadow: inset 0 -6px 0 var(--paint);
+    }
+  }
+  .poll__foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+  }
+  .poll__foot span:empty {
+    display: none;
+  }
+</style>

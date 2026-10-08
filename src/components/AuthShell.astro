@@ -1,0 +1,109 @@
+---
+import Layout from '../layouts/Layout.astro';
+interface Props {
+  title: string;
+  lead?: string;
+  index?: boolean;
+}
+const { title, lead, index = false } = Astro.props;
+---
+<Layout title={title} index={index}>
+  <section class="wrap auth">
+    <div class="auth__zebra" aria-hidden="true"></div>
+    <div class="auth__panel">
+      <h1 class="auth__title">{title}</h1>
+      {lead && <p class="lead">{lead}</p>}
+      <slot />
+    </div>
+  </section>
+</Layout>
+
+<style>
+  .auth {
+    display: grid;
+    gap: var(--space-6);
+    padding-block: var(--space-7);
+  }
+  @media (min-width: 960px) {
+    .auth {
+      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+      align-items: start;
+    }
+  }
+  .auth__zebra {
+    display: none;
+  }
+  @media (min-width: 960px) {
+    .auth__zebra {
+      display: block;
+      height: 100%;
+      min-height: 32rem;
+      background: repeating-linear-gradient(0deg, var(--paint) 0 3.2rem, transparent 3.2rem 6.4rem);
+      border-right: 2.5px solid var(--ink);
+    }
+  }
+  .auth__panel {
+    display: grid;
+    gap: var(--space-5);
+    max-width: 34rem;
+  }
+  .auth__title {
+    font-size: clamp(3rem, 1.5rem + 6vw, 6.5rem);
+    text-transform: uppercase;
+    font-weight: 900;
+    line-height: 0.88;
+  }
+  .auth__panel :global(form) {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .auth__panel :global(.alt) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+  }
+  .auth__panel :global(.notice) {
+    padding: var(--space-4);
+    border: 2.5px solid var(--ink);
+    font-weight: 700;
+  }
+  .auth__panel :global(.notice--ok) {
+    background: var(--paint);
+    color: var(--paint-ink);
+    border-color: var(--paint);
+  }
+  .auth__panel :global(.pw) {
+    position: relative;
+  }
+  .auth__panel :global(.pw .input) {
+    padding-right: 3.5rem;
+  }
+  .auth__panel :global(.pw button) {
+    position: absolute;
+    right: 4px;
+    top: 4px;
+    bottom: 4px;
+    width: 44px;
+    border: 0;
+    background: transparent;
+    display: grid;
+    place-items: center;
+  }
+  .auth__panel :global(.pw button[aria-pressed='true']) {
+    color: var(--ink-3);
+  }
+  .auth__panel :global(.or) {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--ink-3);
+  }
+  .auth__panel :global(.or::before),
+  .auth__panel :global(.or::after) {
+    content: '';
+    height: 3px;
+    background: var(--dash);
+  }
+</style>

@@ -1,0 +1,13 @@
+---
+import PostPage from '../../components/PostPage.astro';
+import { getPost } from '../../lib/queries';
+import { idFromParam, postPath } from '../../lib/paths';
+import { href } from '../../i18n';
+
+const { lang, user, path } = Astro.locals;
+const post = await getPost(idFromParam(Astro.params.id), user?.id);
+const ok = post && post.kind === 'proposal';
+if (ok && decodeURIComponent(path) !== postPath(post)) return Astro.redirect(href(lang, postPath(post)) + Astro.url.search, 301);
+if (!ok) Astro.response.status = 404;
+---
+<PostPage kind="proposal" post={ok ? post : null} />

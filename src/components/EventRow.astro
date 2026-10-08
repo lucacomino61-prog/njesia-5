@@ -1,0 +1,163 @@
+---
+import Icon from './Icon.astro';
+import { t as tr, href } from '../i18n';
+import { dateLabel, dayMonth, clock } from '../lib/time';
+import { eventPath } from '../lib/paths';
+import type { EventRow } from '../lib/queries';
+import { canWrite } from '../lib/auth';
+
+interface Props {
+  event: EventRow;
+  size?: 'md' | 'lg';
+}
+const { event: e, size = 'md' } = Astro.props;
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+const dm = dayMonth(e.starts_at, lang);
+const url = href(lang, eventPath(e));
+const past = e.ends_at < Date.now();
+const back = href(lang, path) + Astro.url.search;
+---
+<article class:list={['ev', `ev--${size}`, { 'ev--past': past }]} data-region={`event-${e.id}`} data-count-scope>
+  <a class="ev__date" href={url} aria-hidden="true" tabindex="-1">
+    <span class="ev__day num">{dm.day}</span>
+    <span class="ev__month">{dm.month}</span>
+  </a>
+  <div class="ev__body">
+    <p class="meta">{dateLabel(e.starts_at, lang, { capital: true })} · {clock(e.starts_at)}-{clock(e.ends_at)}</p>
+    <h3 class="ev__title"><a href={url}>{e.title}</a></h3>
+    <p class="ev__where">
+      <Icon name={e.kind === 'online' ? 'video' : 'mapPin'} />
+      {e.kind === 'online' ? t.events.online : e.place_text}
+    </p>
+    <div class="ev__act">
+      {!past && (
+        canWrite(user) ? (
+          <form method="post" action="/do/rsvp" data-enhance data-optimistic>
+            <input type="hidden" name="event" value={e.id} />
+            <input type="hidden" name="back" value={back} />
+            <button class="btn btn--sm" type="submit" aria-pressed={e.mine ? 'true' : 'false'}>
+              <Icon name={e.mine ? 'check' : 'calendarPlus'} />
+              {e.mine ? t.events.goingDone : t.events.going}
+            </button>
+          </form>
+        ) : (
+          <a class="btn btn--sm" href={href(lang, user ? '/ne-pritje' : '/hyr') + `?pas=${encodeURIComponent(back)}`}>
+            <Icon name="calendarPlus" />{t.events.going}
+          </a>
+        )
+      )}
+      <p class="ev__count"><strong class="num" data-count={e.going}>{e.going}</strong> {past ? (lang === 'sq' ? (e.going === 1 ? 'erdhi' : 'erdhën') : 'came') : (lang === 'sq' ? (e.going === 1 ? 'vjen' : 'vijnë') : 'going')}</p>
+    </div>
+  </div>
+</article>
+
+<style>
+  .ev {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-5);
+    padding-block: var(--space-5);
+    align-items: start;
+  }
+  .ev__date {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    width: 5.5rem;
+    min-height: 5.5rem;
+    padding: 0.4rem;
+    background: var(--ink);
+    color: var(--paint);
+    text-decoration: none;
+    font-family: var(--font-display);
+    font-weight: 900;
+    line-height: 0.85;
+  }
+  .ev--lg .ev__date {
+    width: clamp(7rem, 5rem + 8vw, 11rem);
+    min-height: clamp(7rem, 5rem + 8vw, 11rem);
+  }
+  .ev__day {
+    font-size: 3.2rem;
+  }
+  .ev--lg .ev__day {
+    font-size: clamp(4.5rem, 3rem + 6vw, 8rem);
+  }
+  .ev__month {
+    font-size: 1.15rem;
+    letter-spacing: 0.08em;
+  }
+  .ev--lg .ev__month {
+    font-size: clamp(1.3rem, 1rem + 1vw, 1.9rem);
+  }
+  .ev--past .ev__date {
+    background: var(--ground-2);
+    color: var(--ink-2);
+  }
+  .ev__body {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .ev__title {
+    font-size: var(--step-3);
+    max-width: 22ch;
+  }
+  .ev--lg .ev__title {
+    font-size: var(--step-4);
+  }
+  .ev__title a {
+    text-decoration: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .ev__title a:hover {
+      text-decoration: underline;
+      text-decoration-color: var(--paint);
+      text-decoration-thickness: 0.12em;
+    }
+  }
+  .ev__where {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    color: var(--ink-2);
+    font-weight: 700;
+  }
+  .ev__act {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-4);
+    margin-top: var(--space-2);
+  }
+  .ev__count {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.35rem;
+    text-transform: uppercase;
+  }
+  @media (max-width: 520px) {
+    .ev {
+      grid-template-columns: 1fr;
+      gap: var(--space-3);
+    }
+    .ev__date {
+      grid-auto-flow: column;
+      gap: 0.4em;
+      width: auto;
+      min-height: 0;
+      justify-content: start;
+      align-items: baseline;
+      padding: 0.35rem 0.7rem;
+      justify-self: start;
+    }
+    .ev__day,
+    .ev--lg .ev__day {
+      font-size: 2.4rem;
+    }
+    .ev--lg .ev__date {
+      width: auto;
+      min-height: 0;
+    }
+  }
+</style>

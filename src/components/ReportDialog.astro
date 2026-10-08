@@ -1,0 +1,106 @@
+---
+// One report dialog per page; openers fill in what is being reported. Without JS the openers
+// are links to /raporto, which renders the same form as a page.
+import { t as tr, href } from '../i18n';
+interface Props {
+  asPage?: { type: string; id: string; back: string };
+}
+const { asPage } = Astro.props;
+const { lang, path } = Astro.locals;
+const t = tr(lang);
+const reasons = Object.entries(t.report.reasons);
+---
+{asPage ? (
+  <form class="rp" method="post" action="/do/report">
+    <input type="hidden" name="type" value={asPage.type} />
+    <input type="hidden" name="id" value={asPage.id} />
+    <input type="hidden" name="back" value={asPage.back} />
+    <fieldset class="field">
+      <legend>{t.report.title}</legend>
+      <p class="hint">{t.report.lead}</p>
+      {reasons.map(([k, v], i) => (
+        <label class="rp__opt"><input type="radio" name="reason" value={k} required checked={i === 0} />{v}</label>
+      ))}
+    </fieldset>
+    <div class="field">
+      <label for="rp-note-p">{t.report.note}</label>
+      <textarea class="textarea" id="rp-note-p" name="note" maxlength="1000"></textarea>
+    </div>
+    <button class="btn" type="submit">{t.report.submit}</button>
+  </form>
+) : (
+  <dialog id="report" class="dlg" aria-labelledby="rp-h">
+    <form class="rp" method="post" action="/do/report" data-enhance>
+      <input type="hidden" name="type" value="" data-field="type" />
+      <input type="hidden" name="id" value="" data-field="id" />
+      <input type="hidden" name="back" value={href(lang, path)} />
+      <h2 class="h3" id="rp-h">{t.report.title}</h2>
+      <p class="meta">{t.report.lead}</p>
+      <fieldset class="field">
+        <legend class="sr-only">{t.report.title}</legend>
+        {reasons.map(([k, v], i) => (
+          <label class="rp__opt"><input type="radio" name="reason" value={k} required checked={i === 0} />{v}</label>
+        ))}
+      </fieldset>
+      <div class="field">
+        <label for="rp-note">{t.report.note}</label>
+        <textarea class="textarea" id="rp-note" name="note" maxlength="1000"></textarea>
+      </div>
+      <p class="form-error" role="alert"></p>
+      <div class="rp__bar">
+        <button class="btn btn--line" type="button" data-close>{t.report.close}</button>
+        <button class="btn" type="submit">{t.report.submit}</button>
+      </div>
+    </form>
+  </dialog>
+)}
+
+<style>
+  .dlg {
+    width: min(34rem, calc(100vw - 2rem));
+    padding: var(--space-6);
+    border: 3px solid var(--ink);
+    background: var(--ground);
+    color: var(--ink);
+    transition:
+      opacity 200ms ease,
+      transform 220ms var(--ease-out),
+      display 220ms allow-discrete,
+      overlay 220ms allow-discrete;
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  .dlg[open] {
+    opacity: 1;
+    transform: none;
+    @starting-style {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+  .dlg::backdrop {
+    background: rgb(28 29 31 / 0.55);
+  }
+  .rp {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .rp__opt {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 44px;
+    font-weight: 600;
+  }
+  .rp__opt input {
+    width: 1.25rem;
+    height: 1.25rem;
+    accent-color: var(--ink);
+  }
+  .rp__bar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-3);
+  }
+</style>

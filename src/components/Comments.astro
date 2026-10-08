@@ -1,0 +1,213 @@
+---
+// Comments with one level of replies. Removed or deleted comments keep their place (so replies
+// still make sense) and say why they are gone. The heading counts only visible comments, the
+// same number the lists show.
+import Icon from './Icon.astro';
+import { t as tr, href } from '../i18n';
+import { relative } from '../lib/time';
+import { canWrite, isTeam } from '../lib/auth';
+import type { CommentRow } from '../lib/queries';
+
+interface Props {
+  postId: string;
+  comments: CommentRow[];
+}
+const { postId, comments } = Astro.props;
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+const back = href(lang, path);
+const visible = comments.filter((c) => c.state === 'visible').length;
+const top = comments.filter((c) => !c.parent_id);
+const repliesOf = (id: string) => comments.filter((c) => c.parent_id === id);
+const writer = canWrite(user);
+const team = isTeam(user);
+const goneText = (s: string) => (s === 'deleted' ? t.comments.deleted : s === 'removed' ? t.comments.removed : t.comments.review);
+---
+<section class="cm" id="komente" data-region="comments" aria-labelledby="cm-h">
+  <h2 class="h3 cm__h" id="cm-h">{t.comments.title(visible)}</h2>
+
+  {writer ? (
+    <form class="cm__new" method="post" action="/do/comment" data-enhance data-reset>
+      <input type="hidden" name="post" value={postId} />
+      <input type="hidden" name="back" value={back + '#komente'} />
+      <label class="sr-only" for="cm-body">{t.comments.placeholder}</label>
+      <textarea class="textarea" id="cm-body" name="body" required minlength="2" maxlength="3000" placeholder={t.comments.placeholder}></textarea>
+      <div class="cm__bar">
+        <p class="form-error" role="alert"></p>
+        <button class="btn btn--sm" type="submit">{t.comments.send}<Icon name="arrowRight" /></button>
+      </div>
+    </form>
+  ) : (
+    <a class="btn btn--line cm__gate" href={href(lang, user ? '/ne-pritje' : '/hyr') + `?pas=${encodeURIComponent(back + '#komente')}`}>
+      {user ? t.comments.verify : t.comments.signIn}
+    </a>
+  )}
+
+  {top.length === 0 ? (
+    <p class="meta cm__empty">{t.comments.empty}</p>
+  ) : (
+    <ol class="cm__list" role="list">
+      {top.map((c) => (
+        <li class="cm__item" id={`k-${c.id}`}>
+          {c.state === 'visible' ? (
+            <article class="c">
+              <header class="c__head">
+                <span class:list={['plate', { 'plate--ink': c.author_role === 'admin' || c.author_role === 'superadmin' }]} aria-hidden="true">{c.author_name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</span>
+                <strong>{user?.id === c.author_id ? t.comments.you : c.author_name}</strong>
+                {(c.author_role === 'admin' || c.author_role === 'superadmin') && <span class="tag tag--paint">{t.post.team}</span>}
+                <time class="meta" datetime={new Date(c.created_at).toISOString()}>{relative(c.created_at, lang)}{c.edited_at && c.edited_at > 0 ? ` · ${t.post.edited}` : ''}</time>
+              </header>
+              <p class="c__body">{c.body}</p>
+              <div class="c__acts">
+                {writer && (
+                  <details class="c__more">
+                    <summary class="btn btn--quiet btn--sm">{t.comments.reply}</summary>
+                    <form method="post" action="/do/comment" data-enhance data-reset>
+                      <input type="hidden" name="post" value={postId} />
+                      <input type="hidden" name="parent" value={c.id} />
+                      <input type="hidden" name="back" value={back + `#k-${c.id}`} />
+                      <label class="sr-only" for={`r-${c.id}`}>{t.comments.replyTo(c.author_name)}</label>
+                      <textarea class="textarea" id={`r-${c.id}`} name="body" required minlength="2" placeholder={t.comments.replyTo(c.author_name)}></textarea>
+                      <p class="form-error" role="alert"></p>
+                      <button class="btn btn--sm" type="submit">{t.comments.send}</button>
+                    </form>
+                  </details>
+                )}
+                {user?.id === c.author_id && (
+                  <details class="c__more">
+                    <summary class="btn btn--quiet btn--sm">{t.comments.edit}</summary>
+                    <form method="post" action="/do/comment-edit" data-enhance>
+                      <input type="hidden" name="comment" value={c.id} />
+                      <input type="hidden" name="back" value={back + `#k-${c.id}`} />
+                      <label class="sr-only" for={`e-${c.id}`}>{t.comments.edit}</label>
+                      <textarea class="textarea" id={`e-${c.id}`} name="body" required minlength="2">{c.body}</textarea>
+                      <p class="form-error" role="alert"></p>
+                      <button class="btn btn--sm" type="submit">{t.comments.save}</button>
+                    </form>
+                  </details>
+                )}
+                {(user?.id === c.author_id || team) && (
+                  <form method="post" action="/do/comment-delete" data-enhance>
+                    <input type="hidden" name="comment" value={c.id} />
+                    <input type="hidden" name="back" value={back + '#komente'} />
+                    <button class="btn btn--quiet btn--sm" type="submit">{t.comments.delete}</button>
+                  </form>
+                )}
+                {user && user.id !== c.author_id && (
+                  <a class="btn btn--quiet btn--sm" href={href(lang, `/raporto?lloji=comment&id=${c.id}&pas=${encodeURIComponent(back)}`)} data-open="report" data-fill={JSON.stringify({ type: 'comment', id: c.id })}>
+                    <Icon name="flag" /><span class="sr-only">{t.post.report}</span>
+                  </a>
+                )}
+              </div>
+            </article>
+          ) : (
+            <p class="c c--gone meta">{goneText(c.state)}</p>
+          )}
+          {repliesOf(c.id).length > 0 && (
+            <ol class="cm__replies" role="list">
+              {repliesOf(c.id).map((r) => (
+                <li id={`k-${r.id}`}>
+                  {r.state === 'visible' ? (
+                    <article class="c">
+                      <header class="c__head">
+                        <span class:list={['plate', { 'plate--ink': r.author_role === 'admin' || r.author_role === 'superadmin' }]} aria-hidden="true">{r.author_name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</span>
+                        <strong>{user?.id === r.author_id ? t.comments.you : r.author_name}</strong>
+                        {(r.author_role === 'admin' || r.author_role === 'superadmin') && <span class="tag tag--paint">{t.post.team}</span>}
+                        <time class="meta" datetime={new Date(r.created_at).toISOString()}>{relative(r.created_at, lang)}</time>
+                      </header>
+                      <p class="c__body">{r.body}</p>
+                      {(user?.id === r.author_id || team) && (
+                        <form method="post" action="/do/comment-delete" data-enhance class="c__acts">
+                          <input type="hidden" name="comment" value={r.id} />
+                          <input type="hidden" name="back" value={back + '#komente'} />
+                          <button class="btn btn--quiet btn--sm" type="submit">{t.comments.delete}</button>
+                        </form>
+                      )}
+                    </article>
+                  ) : (
+                    <p class="c c--gone meta">{goneText(r.state)}</p>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </li>
+      ))}
+    </ol>
+  )}
+</section>
+
+<style>
+  .cm {
+    display: grid;
+    gap: var(--space-5);
+    max-width: 52rem;
+  }
+  .cm__new {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .cm__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .cm__gate {
+    justify-self: start;
+  }
+  .cm__list,
+  .cm__replies {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: var(--space-5);
+  }
+  .cm__replies {
+    margin-top: var(--space-4);
+    padding-left: var(--space-6);
+    border-left: 4px solid var(--paint);
+  }
+  .c {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .c__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+  .c__head .plate {
+    width: 2.25rem;
+    height: 2.25rem;
+    font-size: 0.95rem;
+  }
+  .c__body {
+    white-space: pre-line;
+    max-width: var(--measure);
+  }
+  .c__acts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: start;
+    gap: var(--space-1);
+  }
+  .c__more[open] {
+    flex-basis: 100%;
+  }
+  .c__more summary {
+    list-style: none;
+  }
+  .c__more summary::-webkit-details-marker {
+    display: none;
+  }
+  .c__more form {
+    display: grid;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
+  .c--gone {
+    font-style: italic;
+  }
+</style>

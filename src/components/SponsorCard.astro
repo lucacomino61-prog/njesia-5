@@ -1,0 +1,63 @@
+---
+import Icon from './Icon.astro';
+import { t as tr } from '../i18n';
+import type { SponsorRow } from '../lib/queries';
+interface Props {
+  sponsor: SponsorRow;
+  level?: 2 | 3;
+}
+const { sponsor: s, level = 3 } = Astro.props;
+const H = level === 2 ? 'h2' : 'h3';
+const t = tr(Astro.locals.lang);
+const maps = s.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.address)}` : null;
+---
+<article class="sp" data-sponsor={s.id} aria-label={`${t.businesses.sponsored}: ${s.name}`}>
+  <p class="sp__label">{t.businesses.sponsored}</p>
+  <H class="sp__name">{s.name}</H>
+  <p class="sp__desc">{s.description}</p>
+  <ul class="sp__links" role="list">
+    {maps && <li><a href={maps} target="_blank" rel="noopener"><Icon name="mapPin" />{s.address}</a></li>}
+    {s.phone && <li><a href={`tel:${s.phone.replace(/\s/g, '')}`}><Icon name="phone" />{s.phone}</a></li>}
+    {s.url && <li><a href={`/api/sponsors/${s.id}/click`} target="_blank" rel="noopener sponsored"><Icon name="external" />{t.businesses.visit}</a></li>}
+  </ul>
+</article>
+
+<style>
+  .sp {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-5);
+    border: 2.5px solid var(--ink);
+    background:
+      repeating-linear-gradient(90deg, var(--paint) 0 0.8rem, transparent 0.8rem 1.6rem) top / 100% 0.5rem no-repeat,
+      var(--ground);
+    padding-top: calc(var(--space-5) + 0.5rem);
+  }
+  .sp__label {
+    font-size: var(--step--1);
+    font-weight: 700;
+    color: var(--ink-2);
+  }
+  .sp__name {
+    font-size: var(--step-2);
+  }
+  .sp__desc {
+    color: var(--ink-2);
+  }
+  .sp__links {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: var(--space-1);
+  }
+  .sp__links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    min-height: 44px;
+    font-weight: 700;
+    text-decoration: underline;
+    text-decoration-color: var(--paint);
+    text-decoration-thickness: 0.18em;
+  }
+</style>

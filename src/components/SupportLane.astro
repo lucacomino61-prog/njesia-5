@@ -1,0 +1,85 @@
+---
+// Support against a goal, drawn as a lane line: painted dashes up to the real count.
+import { t as tr } from '../i18n';
+interface Props {
+  supports: number;
+  goal: number;
+  size?: 'sm' | 'lg';
+}
+const { supports, goal, size = 'sm' } = Astro.props;
+const t = tr(Astro.locals.lang);
+const f = Math.min(1, supports / Math.max(1, goal));
+---
+<div class:list={['sl', `sl--${size}`]} style={`--f:${f}`}>
+  <div class="sl__lane" role="meter" aria-valuemin="0" aria-valuemax={goal} aria-valuenow={supports} aria-label={`${t.proposal.supporters(supports)}, ${t.proposal.goal(goal)}`}>
+    <span class="sl__paint"></span>
+  </div>
+  <p class="sl__nums">
+    <strong class="num" data-count={supports}>{supports}</strong>
+    <span>/ {goal}</span>
+    <span class="sl__word">{t.proposal.supportersWord}</span>
+    {supports >= goal && <span class="tag tag--paint">{t.proposal.goalReached}</span>}
+  </p>
+</div>
+
+<style>
+  .sl {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: var(--space-4);
+  }
+  /* phones: the lane gets the full width, the count sits under it */
+  @media (max-width: 480px) {
+    .sl {
+      grid-template-columns: 1fr;
+      gap: var(--space-2);
+    }
+  }
+  .sl__lane {
+    position: relative;
+    height: 8px;
+    background: repeating-linear-gradient(90deg, var(--line-soft) 0 1.6rem, transparent 1.6rem 2.4rem);
+  }
+  .sl--lg .sl__lane {
+    height: 14px;
+    background: repeating-linear-gradient(90deg, var(--line-soft) 0 2.6rem, transparent 2.6rem 3.8rem);
+  }
+  .sl__paint {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: calc(var(--f) * 100%);
+    background: repeating-linear-gradient(90deg, var(--paint) 0 1.6rem, transparent 1.6rem 2.4rem);
+    box-shadow: none;
+  }
+  .sl--lg .sl__paint {
+    background: repeating-linear-gradient(90deg, var(--paint) 0 2.6rem, transparent 2.6rem 3.8rem);
+  }
+  .sl__nums {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35em;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.5rem;
+    line-height: 1;
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+  .sl--lg .sl__nums {
+    font-size: 2.6rem;
+  }
+  .sl__nums > span:not(.tag) {
+    color: var(--ink-3);
+    font-weight: 700;
+  }
+  .sl__nums .tag {
+    font-family: var(--font-text);
+    align-self: center;
+  }
+  .sl__nums .sl__word {
+    font-family: var(--font-text);
+    font-size: var(--step--1);
+    color: var(--ink-2);
+  }
+</style>

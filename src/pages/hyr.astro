@@ -1,0 +1,71 @@
+---
+import AuthShell from '../components/AuthShell.astro';
+import Icon from '../components/Icon.astro';
+import { t as tr, href } from '../i18n';
+import { callAuth, errorText, redirectWith, readForm } from '../lib/authflow';
+import { safeBack } from '../lib/respond';
+import { googleEnabled } from '../lib/auth';
+import { env } from 'cloudflare:workers';
+import { looksLikePhone, normalizePhone } from '../lib/phone';
+
+const { lang, user } = Astro.locals;
+const t = tr(lang);
+const pas = safeBack(Astro.url.searchParams.get('pas'), href(lang, '/'));
+if (user && Astro.request.method === 'GET') return Astro.redirect(pas, 303);
+
+let error = '';
+let email = '';
+if (Astro.request.method === 'POST') {
+  const f = await readForm(Astro);
+  const next = safeBack(f.get('pas'), href(lang, '/'));
+  if (f.get('op') === 'google' && googleEnabled()) {
+    const r = await callAuth((a) =>
+      a.api.signInSocial({ body: { provider: 'google', callbackURL: env.SITE_URL + next, errorCallbackURL: env.SITE_URL + href(lang, '/hyr') }, headers: Astro.request.headers, asResponse: true }),
+    );
+    if (r.ok && typeof r.data?.url === 'string') return redirectWith(r.data.url, r.cookies);
+    error = errorText(lang, r.code);
+  } else {
+    email = String(f.get('email') ?? '').trim().slice(0, 200);
+    const password = String(f.get('password') ?? '');
+    // one field for both ways in: a phone number signs in through the phone route
+    const r = looksLikePhone(email)
+      ? await callAuth((a) =>
+          a.api.signInPhoneNumber({ body: { phoneNumber: normalizePhone(email)!, password }, headers: Astro.request.headers, asResponse: true }),
+        )
+      : await callAuth((a) => a.api.signInEmail({ body: { email, password }, headers: Astro.request.headers, asResponse: true }));
+    if (r.ok) return redirectWith(next, r.cookies);
+    error = errorText(lang, r.code === 'INVALID_PHONE_NUMBER_OR_PASSWORD' ? 'INVALID_EMAIL_OR_PASSWORD' : r.code);
+    Astro.response.status = 400;
+  }
+}
+---
+<AuthShell title={t.auth.signInTitle} lead={t.auth.signInLead} index>
+  <form method="post" action={href(lang, '/hyr') + (pas !== href(lang, '/') ? `?pas=${encodeURIComponent(pas)}` : '')} novalidate={false}>
+    <input type="hidden" name="pas" value={pas} />
+    <div class="field">
+      <label for="email">{lang === 'sq' ? 'Email ose numër telefoni' : 'Email or phone number'}</label>
+      <input class="input" id="email" name="email" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required value={email} aria-invalid={error ? 'true' : undefined} aria-describedby={error ? 'err' : undefined} />
+    </div>
+    <div class="field">
+      <label for="password">{t.auth.password}</label>
+      <div class="pw">
+        <input class="input" id="password" name="password" type="password" autocomplete="current-password" required minlength="8" aria-invalid={error ? 'true' : undefined} />
+        <button type="button" data-reveal="password" aria-pressed="false" aria-label={t.auth.showPassword}><Icon name="eye" /></button>
+      </div>
+    </div>
+    {error && <p class="form-error" id="err" role="alert">{error}</p>}
+    <button class="btn" type="submit">{t.auth.signIn}<Icon name="arrowRight" /></button>
+    <a class="signlink" href={href(lang, '/harrova')}>{t.auth.forgot}</a>
+  </form>
+  {googleEnabled() && (
+    <>
+      <p class="or">{t.auth.or}</p>
+      <form method="post" action={href(lang, '/hyr')}>
+        <input type="hidden" name="op" value="google" />
+        <input type="hidden" name="pas" value={pas} />
+        <button class="btn btn--line" type="submit"><Icon name="google" />{t.auth.google}</button>
+      </form>
+    </>
+  )}
+  <p class="alt">{t.auth.noAccount} <a class="signlink" href={href(lang, '/regjistrohu') + (pas !== href(lang, '/') ? `?pas=${encodeURIComponent(pas)}` : '')}>{t.auth.signUp}</a></p>
+</AuthShell>

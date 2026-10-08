@@ -1,0 +1,151 @@
+---
+// Sign-up: first name, last name, phone, street, email (+ password, neighbourhood). The email is
+// confirmed with a 6-digit code on the next page; the team then approves the account.
+import AuthShell from '../components/AuthShell.astro';
+import Icon from '../components/Icon.astro';
+import { t as tr, href } from '../i18n';
+import { callAuth, errorText, redirectWith, readForm } from '../lib/authflow';
+import { safeBack } from '../lib/respond';
+import { googleEnabled } from '../lib/auth';
+import { listPlaces } from '../lib/queries';
+import { normalizePhone, formatPhone } from '../lib/phone';
+import { one, run } from '../lib/db';
+
+const { lang, user } = Astro.locals;
+const t = tr(lang);
+const sq = lang === 'sq';
+const pas = safeBack(Astro.url.searchParams.get('pas'), href(lang, '/'));
+if (user && Astro.request.method === 'GET') return Astro.redirect(pas, 303);
+const hoods = (await listPlaces()).filter((p) => p.kind === 'lagje');
+
+const v = { first: '', last: '', email: '', phone: '', street: '', hood: '' };
+const errors: Record<string, string> = {};
+let formError = '';
+if (Astro.request.method === 'POST') {
+  const f = await readForm(Astro);
+  const get = (k: string, max: number) => String(f.get(k) ?? '').trim().slice(0, max);
+  v.first = get('firstName', 40);
+  v.last = get('lastName', 40);
+  v.email = get('email', 200);
+  v.phone = get('phone', 30);
+  v.street = get('street', 120);
+  v.hood = get('neighbourhood', 80);
+  const password = String(f.get('password') ?? '');
+  const next = safeBack(f.get('pas'), href(lang, '/'));
+  const e164 = normalizePhone(v.phone);
+  if (v.first.length < 2) errors.firstName = t.errors.invalid;
+  if (v.last.length < 2) errors.lastName = t.errors.invalid;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) errors.email = t.errors.INVALID_EMAIL;
+  if (!e164) errors.phone = t.errors.INVALID_PHONE_NUMBER;
+  else if (await one('SELECT 1 FROM "user" WHERE phoneNumber = ?', e164))
+    errors.phone = sq ? 'Ka tashmë një llogari me këtë numër. Hyr me të.' : 'An account with this number already exists. Sign in with it.';
+  if (v.street.length < 3) errors.street = t.errors.invalid;
+  if (password.length < 8) errors.password = t.errors.PASSWORD_TOO_SHORT;
+  if (!Object.keys(errors).length) {
+    const r = await callAuth((a) =>
+      a.api.signUpEmail({
+        body: {
+          name: `${v.first} ${v.last}`,
+          email: v.email,
+          password,
+          firstName: v.first,
+          lastName: v.last,
+          street: v.street,
+          neighbourhood: hoods.some((h) => h.slug === v.hood) ? v.hood : undefined,
+          locale: lang,
+        },
+        headers: Astro.request.headers,
+        asResponse: true,
+      }),
+    );
+    if (r.ok) {
+      const id = (r.data?.user as { id?: string } | undefined)?.id;
+      if (id) await run('UPDATE "user" SET phoneNumber = ?, phoneNumberVerified = 0 WHERE id = ?', e164, id);
+      return redirectWith(href(lang, '/konfirmo') + `?pas=${encodeURIComponent(next)}`, r.cookies);
+    }
+    formError = errorText(lang, r.code);
+  }
+  Astro.response.status = 400;
+}
+const err = (k: string) => (errors[k] ? { 'aria-invalid': 'true', 'aria-describedby': `${k}-err` } : {});
+---
+<AuthShell title={t.auth.signUpTitle} lead={t.auth.signUpLead} index>
+  <form class="su" method="post" action={href(lang, '/regjistrohu') + (pas !== href(lang, '/') ? `?pas=${encodeURIComponent(pas)}` : '')}>
+    <input type="hidden" name="pas" value={pas} />
+    <div class="su__row">
+      <div class="field">
+        <label for="firstName">{t.auth.firstName}</label>
+        <input class="input" id="firstName" name="firstName" autocomplete="given-name" required minlength="2" maxlength="40" value={v.first} {...err('firstName')} />
+        {errors.firstName && <p class="error" id="firstName-err">{errors.firstName}</p>}
+      </div>
+      <div class="field">
+        <label for="lastName">{t.auth.lastName}</label>
+        <input class="input" id="lastName" name="lastName" autocomplete="family-name" required minlength="2" maxlength="40" value={v.last} {...err('lastName')} />
+        {errors.lastName && <p class="error" id="lastName-err">{errors.lastName}</p>}
+      </div>
+    </div>
+    <div class="field">
+      <label for="phone">{t.auth.phone}</label>
+      <input class="input" id="phone" name="phone" type="tel" autocomplete="tel-national" inputmode="tel" required placeholder={t.auth.phonePlaceholder} value={normalizePhone(v.phone) ? formatPhone(normalizePhone(v.phone)!) : v.phone} aria-describedby={errors.phone ? 'phone-err ph-hint' : 'ph-hint'} aria-invalid={errors.phone ? 'true' : undefined} />
+      <p class="hint" id="ph-hint">{t.auth.phoneHint}</p>
+      {errors.phone && <p class="error" id="phone-err">{errors.phone}</p>}
+    </div>
+    <div class="field">
+      <label for="street">{t.auth.street}</label>
+      <input class="input" id="street" name="street" autocomplete="street-address" required minlength="3" maxlength="120" placeholder={t.auth.streetPlaceholder} value={v.street} aria-describedby={errors.street ? 'street-err st-hint' : 'st-hint'} aria-invalid={errors.street ? 'true' : undefined} />
+      <p class="hint" id="st-hint">{t.auth.streetHint}</p>
+      {errors.street && <p class="error" id="street-err">{errors.street}</p>}
+    </div>
+    <div class="field">
+      <label for="hood">{t.auth.neighbourhood}</label>
+      <select class="select" id="hood" name="neighbourhood">
+        <option value="">{t.auth.neighbourhoodNone}</option>
+        {hoods.map((h) => <option value={h.slug} selected={v.hood === h.slug}>{h.name}</option>)}
+      </select>
+    </div>
+    <div class="field">
+      <label for="email">{t.auth.email}</label>
+      <input class="input" id="email" name="email" type="email" autocomplete="email" inputmode="email" required value={v.email} aria-describedby={errors.email ? 'email-err em-hint' : 'em-hint'} aria-invalid={errors.email ? 'true' : undefined} />
+      <p class="hint" id="em-hint">{sq ? 'Do të të dërgojmë një kod me 6 shifra për ta konfirmuar.' : 'We will send a 6-digit code to confirm it.'}</p>
+      {errors.email && <p class="error" id="email-err">{errors.email}</p>}
+    </div>
+    <div class="field">
+      <label for="password">{t.auth.password}</label>
+      <div class="pw">
+        <input class="input" id="password" name="password" type="password" autocomplete="new-password" required minlength="8" aria-describedby="pw-hint" aria-invalid={errors.password ? 'true' : undefined} />
+        <button type="button" data-reveal="password" aria-pressed="false" aria-label={t.auth.showPassword}><Icon name="eye" /></button>
+      </div>
+      <p class="hint" id="pw-hint">{t.auth.passwordHint}</p>
+      {errors.password && <p class="error">{errors.password}</p>}
+    </div>
+    {formError && <p class="form-error" role="alert">{formError}</p>}
+    {Object.keys(errors).length > 0 && <p class="form-error" role="alert">{sq ? 'Kontrollo fushat e shënuara.' : 'Check the marked fields.'}</p>}
+    <p class="hint meta">
+      {sq ? 'Duke krijuar llogarinë pranon ' : 'By creating an account you accept the '}
+      <a href={href(lang, '/kushtet')}>{t.nav.terms.toLowerCase()}</a>
+      {sq ? ' dhe ' : ' and the '}
+      <a href={href(lang, '/privatesia')}>{t.nav.privacy.toLowerCase()}</a>.
+      {sq ? ' Pasi konfirmon email-in, ekipi e miraton llogarinë para se të mund të shkruash.' : ' After you confirm your email, the team approves the account before you can write.'}
+    </p>
+    <button class="btn" type="submit">{t.auth.signUp}<Icon name="arrowRight" /></button>
+  </form>
+  {googleEnabled() && (
+    <>
+      <p class="or">{t.auth.or}</p>
+      <form method="post" action={href(lang, '/hyr')}>
+        <input type="hidden" name="op" value="google" />
+        <input type="hidden" name="pas" value={href(lang, '/ne-pritje') + `?pas=${encodeURIComponent(pas)}`} />
+        <button class="btn btn--line" type="submit"><Icon name="google" />{t.auth.google}</button>
+      </form>
+    </>
+  )}
+  <p class="alt">{t.auth.haveAccount} <a class="signlink" href={href(lang, '/hyr') + (pas !== href(lang, '/') ? `?pas=${encodeURIComponent(pas)}` : '')}>{t.auth.signIn}</a></p>
+</AuthShell>
+
+<style>
+  .su__row {
+    display: grid;
+    gap: var(--space-4);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  }
+</style>

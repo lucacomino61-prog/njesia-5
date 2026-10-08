@@ -1,0 +1,66 @@
+---
+// Where a new account lands: it can read everything; writing waits for the team's approval.
+import AuthShell from '../components/AuthShell.astro';
+import Icon from '../components/Icon.astro';
+import { t as tr, href } from '../i18n';
+import { safeBack } from '../lib/respond';
+import { isApproved } from '../lib/auth';
+import { listPlaces } from '../lib/queries';
+import { one } from '../lib/db';
+import { formatPhone } from '../lib/phone';
+
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+const pas = safeBack(Astro.url.searchParams.get('pas'), href(lang, '/'));
+if (!user) return Astro.redirect(href(lang, '/hyr') + `?pas=${encodeURIComponent(href(lang, path) + Astro.url.search)}`, 303);
+if (!user.emailVerified && !isApproved(user)) return Astro.redirect(href(lang, '/konfirmo') + `?pas=${encodeURIComponent(pas)}`, 303);
+const approved = isApproved(user);
+const declined = !approved && Boolean(user.declinedAt);
+const [hoods, row] = await Promise.all([
+  listPlaces().then((p) => p.filter((x) => x.kind === 'lagje')),
+  one<{ joinNote: string | null; street: string | null; phoneNumber: string | null }>('SELECT joinNote, street, phoneNumber FROM "user" WHERE id = ?', user.id),
+]);
+const here = href(lang, '/ne-pritje') + (pas !== href(lang, '/') ? `?pas=${encodeURIComponent(pas)}` : '');
+---
+<AuthShell
+  title={approved ? t.auth.approvedTitle : declined ? t.auth.declinedTitle : t.auth.pendingTitle}
+  lead={approved ? t.auth.approvedLead : declined ? t.auth.declinedLead : t.auth.pendingLead}
+>
+  {approved ? (
+    <a class="btn" href={pas}>{lang === 'sq' ? 'Vazhdo' : 'Continue'}<Icon name="arrowRight" /></a>
+  ) : declined ? (
+    <a class="btn btn--line" href={href(lang, '/kushtet') + '#kontakt'}>{t.nav.support}</a>
+  ) : (
+    <>
+      <form method="post" action="/do/join-note" data-enhance>
+        <input type="hidden" name="back" value={here} />
+        <input type="hidden" name="lang" value={lang} />
+        <div class="field">
+          <label for="hood">{t.auth.neighbourhood}</label>
+          <select class="select" id="hood" name="neighbourhood">
+            <option value="">{t.auth.neighbourhoodNone}</option>
+            {hoods.map((h) => <option value={h.slug} selected={user.neighbourhood === h.slug}>{h.name}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="phone">{t.auth.phone}</label>
+          <input class="input" id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel-national" placeholder={t.auth.phonePlaceholder} value={row?.phoneNumber ? formatPhone(row.phoneNumber) : ''} aria-describedby="ph-hint" />
+          <p class="hint" id="ph-hint">{t.auth.phoneHint}</p>
+        </div>
+        <div class="field">
+          <label for="street">{t.auth.street}</label>
+          <input class="input" id="street" name="street" autocomplete="street-address" maxlength="120" placeholder={t.auth.streetPlaceholder} value={row?.street ?? ''} aria-describedby="st-hint" />
+          <p class="hint" id="st-hint">{t.auth.streetHint}</p>
+        </div>
+        <div class="field">
+          <label for="note">{t.auth.noteLabel}</label>
+          <textarea class="textarea" id="note" name="note" maxlength="500" aria-describedby="note-hint">{row?.joinNote ?? ''}</textarea>
+          <p class="hint" id="note-hint">{t.auth.noteHint}</p>
+        </div>
+        <p class="form-error" role="alert"></p>
+        <button class="btn" type="submit">{t.auth.noteSave}</button>
+      </form>
+      <a class="signlink" href={pas}>{lang === 'sq' ? 'Vazhdo të lexosh' : 'Keep reading'}<Icon name="arrowRight" /></a>
+    </>
+  )}
+</AuthShell>

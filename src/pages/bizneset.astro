@@ -1,0 +1,26 @@
+---
+import Layout from '../layouts/Layout.astro';
+import SponsorCard from '../components/SponsorCard.astro';
+import { t as tr, href } from '../i18n';
+import { listSponsors } from '../lib/queries';
+
+const { lang } = Astro.locals;
+const t = tr(lang);
+const sponsors = await listSponsors();
+---
+<Layout title={t.businesses.title} description={t.businesses.lead}>
+  <section class="wrap bz">
+    <h1 class="poster">{t.businesses.title}</h1>
+    <p class="lead">{t.businesses.lead}</p>
+    {sponsors.length === 0 ? (
+      <p class="h3">{t.businesses.empty}</p>
+    ) : (
+      <div class="bz__grid">{sponsors.map((s) => <SponsorCard sponsor={s} level={2} />)}</div>
+    )}
+    <p class="meta">{lang === 'sq' ? 'Je biznes i lagjes dhe do të mbështetësh forumin? Shkruaj te ' : 'A neighbourhood business that wants to support the forum? Write via '}<a href={href(lang, '/kushtet') + '#kontakt'}>{t.nav.support}</a>.</p>
+  </section>
+</Layout>
+<style>
+  .bz { display: grid; gap: var(--space-5); padding-top: var(--space-7); }
+  .bz__grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
+</style>

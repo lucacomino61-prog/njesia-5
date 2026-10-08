@@ -1,0 +1,6 @@
+---
+// /propozime → the forum filtered to proposals, keeping the place filter (the reference site lost it).
+import { href } from '../../i18n';
+const vendi = Astro.url.searchParams.get('vendi') ?? Astro.url.searchParams.get('l');
+return Astro.redirect(href(Astro.locals.lang, '/forumi?lloji=propozime' + (vendi ? `&vendi=${encodeURIComponent(vendi)}` : '')), 301);
+---

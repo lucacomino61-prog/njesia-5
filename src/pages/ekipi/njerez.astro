@@ -1,0 +1,124 @@
+---
+import TeamShell from '../../components/TeamShell.astro';
+import { href, t as tr } from '../../i18n';
+import { isTeam, isSuper } from '../../lib/auth';
+import { all } from '../../lib/db';
+import { relative } from '../../lib/time';
+import { formatPhone, isPhoneEmail, normalizePhone } from '../../lib/phone';
+
+const { lang, user, path } = Astro.locals;
+const t = tr(lang);
+const sq = lang === 'sq';
+if (!user) return Astro.redirect(href(lang, '/hyr') + `?pas=${encodeURIComponent(href(lang, path))}`, 303);
+if (!isTeam(user)) return Astro.redirect(href(lang, '/'), 303);
+const q = (Astro.url.searchParams.get('k') ?? '').trim().slice(0, 80);
+const filter = Astro.url.searchParams.get('filtri') ?? '';
+const where = ['1 = 1'];
+const args: unknown[] = [];
+if (q) {
+  where.push('(name LIKE ? OR email LIKE ? OR phoneNumber = ?)');
+  args.push(`%${q}%`, `%${q}%`, normalizePhone(q) ?? '-');
+}
+if (filter === 'ekipi') where.push("role IN ('admin','superadmin')");
+if (filter === 'pezulluar') where.push('suspendedAt IS NOT NULL');
+if (filter === 'pamiratuar') where.push("approvedAt IS NULL AND declinedAt IS NULL AND COALESCE(role, 'resident') = 'resident'");
+if (filter === 'refuzuar') where.push('declinedAt IS NOT NULL');
+const people = await all<{ id: string; name: string; email: string; role: string | null; phoneNumber: string | null; street: string | null; approvedAt: number | null; declinedAt: number | null; suspendedAt: number | null; closedAt: number | null; createdAt: string }>(
+  `SELECT id, name, email, role, phoneNumber, street, approvedAt, declinedAt, suspendedAt, closedAt, createdAt FROM "user" WHERE ${where.join(' AND ')} ORDER BY createdAt DESC LIMIT 100`,
+  ...args,
+);
+const back = href(lang, path) + Astro.url.search;
+const reasons = sq
+  ? { insults: 'Fyerje ose ngacmim', disruption: 'Prishje e diskutimeve', spam: 'Spam ose reklamë', threats: 'Kërcënime', personal_data: 'Publikim të dhënash personale', impersonation: 'Paraqitje si dikush tjetër', other: 'Tjetër' }
+  : { insults: 'Insults or harassment', disruption: 'Disrupting discussions', spam: 'Spam or advertising', threats: 'Threats', personal_data: 'Publishing personal details', impersonation: 'Impersonation', other: 'Other' };
+---
+<TeamShell title={sq ? 'Njerëzit' : 'People'} tab="people">
+  <form class="search" method="get" action={href(lang, '/ekipi/njerez')}>
+    <label class="sr-only" for="k">{sq ? 'Kërko me emër, email ose numër' : 'Search by name, email or number'}</label>
+    <input class="input" id="k" name="k" value={q} placeholder={sq ? 'Kërko me emër, email ose numër' : 'Search by name, email or number'} />
+    <select class="select" name="filtri" aria-label={sq ? 'Filtro' : 'Filter'}>
+      <option value="">{sq ? 'Të gjithë' : 'Everyone'}</option>
+      <option value="ekipi" selected={filter === 'ekipi'}>{sq ? 'Ekipi' : 'Team'}</option>
+      <option value="pezulluar" selected={filter === 'pezulluar'}>{sq ? 'Të pezulluar' : 'Suspended'}</option>
+      <option value="pamiratuar" selected={filter === 'pamiratuar'}>{sq ? 'Presin miratim' : 'Awaiting approval'}</option>
+      <option value="refuzuar" selected={filter === 'refuzuar'}>{sq ? 'Të refuzuar' : 'Declined'}</option>
+    </select>
+    <button class="btn btn--sm" type="submit">{sq ? 'Kërko' : 'Search'}</button>
+  </form>
+  <p class="meta">{people.length} {sq ? 'njerëz' : 'people'}</p>
+  <table class="tbl" data-region="people">
+    <thead><tr><th>{sq ? 'Emri' : 'Name'}</th><th>{sq ? 'Roli' : 'Role'}</th><th>{sq ? 'Gjendja' : 'Status'}</th><th></th></tr></thead>
+    <tbody>
+      {people.map((p) => (
+        <tr>
+          <td><strong>{p.name}</strong><br /><span class="meta">{isPhoneEmail(p.email) ? '' : p.email}{p.phoneNumber ? <>{isPhoneEmail(p.email) ? '' : ' · '}<a href={`tel:${p.phoneNumber}`}>{formatPhone(p.phoneNumber)}</a></> : null}{p.street ? ` · ${p.street}` : ''} · {relative(Date.parse(p.createdAt), lang)}</span></td>
+          <td>
+            {isSuper(user) && p.id !== user.id ? (
+              <form method="post" action="/do/role" data-enhance class="row-acts">
+                <input type="hidden" name="user" value={p.id} /><input type="hidden" name="back" value={back} />
+                <select class="select" name="role" aria-label={sq ? 'Roli' : 'Role'}>
+                  {['resident', 'admin', 'superadmin'].map((r) => <option value={r} selected={(p.role ?? 'resident') === r}>{t.profile.role[r]}</option>)}
+                </select>
+                <button class="btn btn--sm btn--line" type="submit">{sq ? 'Ruaj' : 'Save'}</button>
+              </form>
+            ) : t.profile.role[p.role ?? 'resident']}
+          </td>
+          <td>
+            {p.suspendedAt ? <span class="tag tag--ink">{sq ? 'Pezulluar' : 'Suspended'}</span> : p.closedAt ? <span class="tag">{sq ? 'E mbyllur' : 'Closed'}</span> : p.approvedAt || p.role === 'admin' || p.role === 'superadmin' ? <span class="tag tag--paint">{sq ? 'Miratuar' : 'Approved'}</span> : p.declinedAt ? <span class="tag">{sq ? 'Refuzuar' : 'Declined'}</span> : <span class="tag">{sq ? 'Pret miratim' : 'Awaiting'}</span>}
+          </td>
+          <td>
+            <div class="row-acts">
+              {!p.approvedAt && (p.role ?? 'resident') === 'resident' && (
+                <form method="post" action="/do/approve" data-enhance>
+                  <input type="hidden" name="user" value={p.id} /><input type="hidden" name="back" value={back} />
+                  <button class="btn btn--sm" type="submit">{sq ? 'Mirato' : 'Approve'}</button>
+                </form>
+              )}
+              {!p.approvedAt && !p.declinedAt && (p.role ?? 'resident') === 'resident' && (
+                <form method="post" action="/do/decline" data-enhance>
+                  <input type="hidden" name="user" value={p.id} /><input type="hidden" name="back" value={back} />
+                  <button class="btn btn--sm btn--line" type="submit">{sq ? 'Refuzo' : 'Decline'}</button>
+                </form>
+              )}
+              {p.id !== user.id && p.role !== 'superadmin' && (
+                <details>
+                  <summary class="btn btn--sm btn--quiet">{sq ? 'Fjalëkalim i përkohshëm' : 'Temporary password'}</summary>
+                  <form method="post" action="/do/temp-password" data-enhance class="susp">
+                    <input type="hidden" name="user" value={p.id} /><input type="hidden" name="back" value={back} />
+                    <p class="meta">{sq ? 'Për dikë që nuk hyn dot (p.sh. llogari me numër telefoni). Të gjitha seancat e tij mbyllen.' : 'For someone who cannot sign in (e.g. a phone-number account). All their sessions are closed.'}</p>
+                    <button class="btn btn--sm btn--ink" type="submit">{sq ? 'Krijo' : 'Create'}</button>
+                  </form>
+                </details>
+              )}
+            </div>
+            {p.id !== user.id && p.role !== 'superadmin' && (
+              p.suspendedAt ? (
+                <form method="post" action="/do/suspend-lift" data-enhance>
+                  <input type="hidden" name="user" value={p.id} /><input type="hidden" name="back" value={back} />
+                  <button class="btn btn--sm btn--line" type="submit">{sq ? 'Hiq pezullimin' : 'Lift suspension'}</button>
+                </form>
+              ) : (
+                <details>
+                  <summary class="btn btn--sm btn--quiet">{sq ? 'Pezullo' : 'Suspend'}</summary>
+                  <form method="post" action="/do/suspend" data-enhance class="susp">
+                    <input type="hidden" name="user" value={p.id} /><input type="hidden" name="back" value={back} />
+                    <select class="select" name="reason" aria-label={sq ? 'Arsyeja' : 'Reason'}>{Object.entries(reasons).map(([k, v]) => <option value={k}>{v}</option>)}</select>
+                    <input class="input" name="note" maxlength="500" placeholder={sq ? 'Shënim (vetëm për ekipin)' : 'Note (team only)'} aria-label={sq ? 'Shënim' : 'Note'} />
+                    <button class="btn btn--sm btn--ink" type="submit">{sq ? 'Pezullo' : 'Suspend'}</button>
+                  </form>
+                </details>
+              )
+            )}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</TeamShell>
+<style>
+  .search { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+  .search .input { flex: 1 1 16rem; }
+  .search .select { flex: 0 1 12rem; }
+  .susp { display: grid; gap: var(--space-2); margin-top: var(--space-2); min-width: 16rem; }
+  details summary { list-style: none; }
+</style>
