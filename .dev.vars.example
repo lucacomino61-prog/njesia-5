@@ -1,0 +1,10 @@
+# Copy this file to .dev.vars and fill in your own values. .dev.vars is never committed.
+# Local development only: production sets its own secret with `wrangler secret put BETTER_AUTH_SECRET`.
+
+# Any long random string. Make one with:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+BETTER_AUTH_SECRET=replace-with-a-long-random-string
+
+# The password tools/seed.mjs gives every sample account (banor1@shembull.test ... banor60@shembull.test,
+# ekipi1@shembull.test, ekipi2@shembull.test). At least 8 characters.
+DEV_SEED_PASSWORD=replace-with-a-dev-password

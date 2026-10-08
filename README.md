@@ -10,6 +10,7 @@ loaded on first interaction). Every action is a real form POST, so the site work
 ## Run locally
 ```
 npm install
+cp .dev.vars.example .dev.vars   # then put your own secret and dev password in it
 npm run db:migrate          # D1 schema (local)
 node tools/seed.mjs         # SAMPLE content (see NEEDS_VERIFICATION.md)
 npm run dev                 # http://127.0.0.1:3750
